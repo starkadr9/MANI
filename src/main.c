@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include "../include/lunar_calendar.h"
+#include "../include/lunar_renderer.h"
 
 /* Function to print the moon phase name */
 const char* get_moon_phase_name(MoonPhase phase) {
@@ -50,8 +51,14 @@ void display_help() {
     printf("  germanic_new_year YYYY - Calculate Germanic New Year for given year\n");
     printf("  mpos YYYY MM DD    - Get Metonic position for given date\n");
     printf("  month_length YYYY MM - Calculate lunar month length\n");
+    printf("  seasons YYYY       - Display solstices and equinoxes for given year\n");
     printf("  help               - Display this help information\n");
     printf("  quit               - Exit the program\n");
+    printf("\n");
+    printf("Rendering Commands:\n");
+    printf("  render_month YYYY MM - Render a lunar month calendar\n");
+    printf("  render_year YYYY     - Render a full lunar year calendar\n");
+    printf("  render_cycle YYYY    - Render the Metonic cycle position\n");
 }
 
 /* Process a command and its arguments */
@@ -241,6 +248,86 @@ void process_command(const char* command) {
             printf("Lunar month %d in year %d has %d days\n", month, year, length);
         } else {
             printf("Error: Invalid format. Use 'month_length YYYY MM'\n");
+        }
+    }
+    else if (strncmp(command, "seasons ", 8) == 0) {
+        if (sscanf(command + 8, "%d", &year) == 1) {
+            int month, day;
+            
+            printf("Astronomical seasons for year %d:\n", year);
+            printf("-------------------------------\n");
+            
+            /* Winter Solstice */
+            if (calculate_winter_solstice(year, &month, &day)) {
+                printf("Winter Solstice: %04d-%02d-%02d\n", year, month, day);
+                Weekday wd = calculate_weekday(year, month, day);
+                printf("                 %s\n", get_weekday_name(wd));
+            }
+            
+            /* Spring Equinox */
+            if (calculate_spring_equinox(year, &month, &day)) {
+                printf("Spring Equinox:  %04d-%02d-%02d\n", year, month, day);
+                Weekday wd = calculate_weekday(year, month, day);
+                printf("                 %s\n", get_weekday_name(wd));
+            }
+            
+            /* Summer Solstice */
+            if (calculate_summer_solstice(year, &month, &day)) {
+                printf("Summer Solstice: %04d-%02d-%02d\n", year, month, day);
+                Weekday wd = calculate_weekday(year, month, day);
+                printf("                 %s\n", get_weekday_name(wd));
+            }
+            
+            /* Fall Equinox */
+            if (calculate_fall_equinox(year, &month, &day)) {
+                printf("Fall Equinox:    %04d-%02d-%02d\n", year, month, day);
+                Weekday wd = calculate_weekday(year, month, day);
+                printf("                 %s\n", get_weekday_name(wd));
+            }
+        } else {
+            printf("Error: Invalid format. Use 'seasons YYYY'\n");
+        }
+    }
+    else if (strncmp(command, "render_month ", 13) == 0) {
+        if (sscanf(command + 13, "%d %d", &year, &month) == 2) {
+            RenderOptions options = default_render_options();
+            RenderedMonth rendered = render_lunar_month(year, month, options);
+            if (rendered.buffer) {
+                display_rendered_month(rendered);
+                free_rendered_month(&rendered);
+            } else {
+                printf("Error: Could not render lunar month\n");
+            }
+        } else {
+            printf("Error: Invalid format. Use 'render_month YYYY MM'\n");
+        }
+    }
+    else if (strncmp(command, "render_year ", 12) == 0) {
+        if (sscanf(command + 12, "%d", &year) == 1) {
+            RenderOptions options = default_render_options();
+            RenderedYear rendered = render_lunar_year(year, options);
+            if (rendered.buffer) {
+                display_rendered_year(rendered);
+                free_rendered_year(&rendered);
+            } else {
+                printf("Error: Could not render lunar year\n");
+            }
+        } else {
+            printf("Error: Invalid format. Use 'render_year YYYY'\n");
+        }
+    }
+    else if (strncmp(command, "render_cycle ", 13) == 0) {
+        if (sscanf(command + 13, "%d", &year) == 1) {
+            RenderOptions options = default_render_options();
+            char *position_text = render_metonic_cycle_position(year, options);
+            if (position_text) {
+                display_metonic_cycle_position(position_text);
+                free(position_text);
+            } else {
+                printf("Error: Could not render Metonic cycle position\n");
+            }
+        } else {
+            printf("Error: Invalid format. Use 'render_cycle YYYY'\n");
         }
     }
     else {

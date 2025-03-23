@@ -443,23 +443,144 @@ bool calculate_full_moon(int year, int month, int *full_moon_day, double *full_m
 
 /* Calculate the winter solstice date for a given year */
 bool calculate_winter_solstice(int year, int *month, int *day) {
-    /* A simplified approximation of the winter solstice */
-    *month = WINTER_SOLSTICE_MONTH; /* December */
+    /* More accurate astronomical calculation for winter solstice */
+    /* Based on Jean Meeus' Astronomical Algorithms */
     
-    /* The day of the winter solstice can vary slightly, typically Dec 21 or 22 */
-    /* For better accuracy, we should use a proper astronomical calculation */
-    /* This is a simplified version */
-    *day = WINTER_SOLSTICE_DAY; /* December 21 */
+    double JDE0 = calculate_solstice_equinox_jde(year, 0); /* 0 = winter solstice */
     
-    /* Adjust for leap years and century adjustments (very rough approximation) */
-    if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) {
-        /* In leap years, the solstice might occur one day earlier */
-        if (year % 4 == 0) {
-            *day = 20;
-        }
-    }
+    /* Convert to Gregorian date */
+    double hour_unused;
+    int result_year;
+    julian_day_to_gregorian(JDE0, &result_year, month, day, &hour_unused);
     
     return true;
+}
+
+/* Calculate the spring equinox date for a given year */
+bool calculate_spring_equinox(int year, int *month, int *day) {
+    /* Astronomical calculation for spring equinox */
+    double JDE0 = calculate_solstice_equinox_jde(year, 1); /* 1 = spring equinox */
+    
+    /* Convert to Gregorian date */
+    double hour_unused;
+    int result_year;
+    julian_day_to_gregorian(JDE0, &result_year, month, day, &hour_unused);
+    
+    return true;
+}
+
+/* Calculate the summer solstice date for a given year */
+bool calculate_summer_solstice(int year, int *month, int *day) {
+    /* Astronomical calculation for summer solstice */
+    double JDE0 = calculate_solstice_equinox_jde(year, 2); /* 2 = summer solstice */
+    
+    /* Convert to Gregorian date */
+    double hour_unused;
+    int result_year;
+    julian_day_to_gregorian(JDE0, &result_year, month, day, &hour_unused);
+    
+    return true;
+}
+
+/* Calculate the fall equinox date for a given year */
+bool calculate_fall_equinox(int year, int *month, int *day) {
+    /* Astronomical calculation for fall equinox */
+    double JDE0 = calculate_solstice_equinox_jde(year, 3); /* 3 = fall equinox */
+    
+    /* Convert to Gregorian date */
+    double hour_unused;
+    int result_year;
+    julian_day_to_gregorian(JDE0, &result_year, month, day, &hour_unused);
+    
+    return true;
+}
+
+/* Helper function to calculate Julian day for solstices and equinoxes
+ * Based on Jean Meeus' Astronomical Algorithms, Chapter 27
+ * 
+ * season: 0=winter solstice, 1=spring equinox, 2=summer solstice, 3=fall equinox
+ */
+double calculate_solstice_equinox_jde(int year, int season) {
+    double y = (year - 2000) / 1000.0;
+    double JDE0;
+    
+    /* Constants based on Astronomical Algorithms by Jean Meeus */
+    switch(season) {
+        case 0: /* Winter solstice */
+            JDE0 = 2451900.05952 + 365242.74049 * y + 0.00278 * y * y;
+            break;
+        case 1: /* Spring equinox */
+            JDE0 = 2451623.80984 + 365242.37404 * y + 0.05169 * y * y;
+            break;
+        case 2: /* Summer solstice */
+            JDE0 = 2451716.56767 + 365241.62603 * y + 0.00325 * y * y;
+            break;
+        case 3: /* Fall equinox */
+            JDE0 = 2451810.21715 + 365242.01767 * y - 0.11575 * y * y;
+            break;
+        default:
+            return 0;
+    }
+    
+    /* Apply periodic terms */
+    double T = (JDE0 - 2451545.0) / 36525.0; /* Julian centuries since J2000.0 */
+    double W = 35999.373 * T - 2.47;
+    double dλ = 1 + 0.0334 * cos(DEG_TO_RAD(W)) + 0.0007 * cos(DEG_TO_RAD(2 * W));
+    
+    /* Add periodic term corrections from Meeus' tables */
+    double S = periodic_terms_for_solstice_equinox(T, season);
+    
+    return JDE0 + 0.00001 * S / dλ;
+}
+
+/* Calculate periodic terms for solstices and equinoxes */
+double periodic_terms_for_solstice_equinox(double T, int season) {
+    /* Coefficients for periodic terms from Meeus' tables */
+    /* This is a simplified implementation with the most significant terms */
+    
+    /* A, B, C terms from Meeus Chapter 27 Table 27.A */
+    static const double terms[24][3] = {
+        /* A, B, C for each term */
+        {485, 324.96, 1934.136},
+        {203, 337.23, 32964.467},
+        {199, 342.08, 20.186},
+        {182, 27.85, 445267.112},
+        {156, 73.14, 45036.886},
+        {136, 171.52, 22518.443},
+        {77, 222.54, 65928.934},
+        {74, 296.72, 3034.906},
+        {70, 243.58, 9037.513},
+        {58, 119.81, 33718.147},
+        {52, 297.17, 150.678},
+        {50, 21.02, 2281.226},
+        {45, 247.54, 29929.562},
+        {44, 325.15, 31555.956},
+        {29, 60.93, 4443.417},
+        {18, 155.12, 67555.328},
+        {17, 288.79, 4562.452},
+        {16, 198.04, 62894.029},
+        {14, 199.76, 31436.921},
+        {12, 95.39, 14577.848},
+        {12, 287.11, 31931.756},
+        {12, 320.81, 34777.259},
+        {9, 227.73, 1222.114},
+        {8, 15.45, 16859.074}
+    };
+    
+    /* For full accuracy, we would need separate coefficients for each season */
+    /* This is a simplification - for real implementations, use season-specific coefficients */
+    (void)season; /* Acknowledge that we see the parameter but don't fully use it yet */
+    
+    double sum = 0.0;
+    for (int i = 0; i < 24; i++) {
+        double A = terms[i][0];
+        double B = terms[i][1];
+        double C = terms[i][2];
+        
+        sum += A * cos(DEG_TO_RAD(B + C * T));
+    }
+    
+    return sum;
 }
 
 /*

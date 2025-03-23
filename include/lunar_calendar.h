@@ -12,7 +12,7 @@
 #define LUNAR_MONTH_AVERAGE_DAYS 29.53058868  /* Average synodic month length */
 #define SOLAR_YEAR_DAYS 365.242189  /* Average solar year in days */
 #define WINTER_SOLSTICE_MONTH 12
-#define WINTER_SOLSTICE_DAY 21
+#define DEFAULT_WINTER_SOLSTICE_DAY 21
 
 /* Moon phase enumeration */
 typedef enum {
@@ -121,6 +121,15 @@ bool calculate_new_moon(int year, int month, int *new_moon_day, double *new_moon
 
 /* Calculate the winter solstice date for a given year */
 bool calculate_winter_solstice(int year, int *month, int *day);
+
+/* Calculate equinoxes and solstices for a given year */
+bool calculate_spring_equinox(int year, int *month, int *day);
+bool calculate_summer_solstice(int year, int *month, int *day);
+bool calculate_fall_equinox(int year, int *month, int *day);
+
+/* Helper functions for astronomical calculations */
+double calculate_solstice_equinox_jde(int year, int season);
+double periodic_terms_for_solstice_equinox(double T, int season);
 
 /* Calculate the Germanic new year date for a given Gregorian year */
 int calculate_germanic_new_year(int year, int *month, int *day);

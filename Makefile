@@ -7,7 +7,7 @@ BIN_DIR = bin
 
 # Source files
 SRCS_CORE = src/lunar_calendar.c src/lunar_renderer.c src/main.c
-SRCS_GUI = src/gui/gui_main.c src/gui/calendar_adapter.c src/gui/config.c src/gui/calendar_events.c
+SRCS_GUI = src/gui/gui_main.c src/gui/calendar_adapter.c src/gui/config.c src/gui/calendar_events.c src/gui/settings_dialog.c
 OBJS_CORE = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS_CORE))
 OBJS_GUI = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS_GUI))
 

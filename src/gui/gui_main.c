@@ -8,6 +8,7 @@
 #include "../../include/gui/config.h"
 #include "../../include/gui/calendar_adapter.h"
 #include "../../include/gui/calendar_events.h"
+#include "../../include/gui/settings_dialog.h"
 #include "../../include/lunar_calendar.h"
 #include "../../include/lunar_renderer.h"
 
@@ -51,6 +52,42 @@ static void update_event_editor(LunarCalendarApp* app);
 static void on_add_event(GtkWidget* widget, gpointer user_data);
 static void on_edit_event(GtkWidget* widget, gpointer user_data);
 static void on_delete_event(GtkWidget* widget, gpointer user_data);
+static void init_metonic_cycle_bar(LunarCalendarApp* app);
+static void update_metonic_cycle_display(LunarCalendarApp* app);
+static void on_metonic_help_clicked(GtkButton* button, gpointer user_data);
+static void update_ui_from_config(LunarCalendarApp* app);
+static void on_settings_clicked(GtkButton* button, gpointer user_data);
+
+/**
+ * Get the name of a lunar month.
+ * 
+ * @param month_num Month number (1-13)
+ * @param buffer Buffer to store the name
+ * @param buffer_size Size of the buffer
+ */
+static void lunar_get_month_name(int month_num, char* buffer, size_t buffer_size) {
+    if (!buffer || buffer_size == 0 || month_num < 1 || month_num > 13) {
+        return;
+    }
+    
+    // Default month names
+    static const char* default_month_names[] = {
+        "After Yule", "Sol", "Hretha", "Eostre", "Three Milkings",
+        "Mead", "Hay", "Harvest", "Holy", "Winter", "Blood", "Before Yule", "Thirteenth"
+    };
+    
+    LunarCalendarApp* app = g_object_get_data(G_OBJECT(g_application_get_default()), "app_data");
+    if (app && app->config && app->config->custom_month_names[month_num - 1] && 
+        strlen(app->config->custom_month_names[month_num - 1]) > 0) {
+        // Use custom name if available
+        strncpy(buffer, app->config->custom_month_names[month_num - 1], buffer_size);
+        buffer[buffer_size - 1] = '\0';
+    } else {
+        // Use default name
+        strncpy(buffer, default_month_names[month_num - 1], buffer_size);
+        buffer[buffer_size - 1] = '\0';
+    }
+}
 
 int main(int argc, char** argv) {
     // Initialize the GUI application
@@ -180,144 +217,150 @@ void gui_app_cleanup(LunarCalendarApp* app) {
 
 // Callback when application is activated
 static void activate(GtkApplication* app, gpointer user_data) {
-    LunarCalendarApp* cal_app = (LunarCalendarApp*)user_data;
+    LunarCalendarApp* lunar_app = (LunarCalendarApp*)user_data;
     
-    // Create the main window
-    cal_app->window = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(cal_app->window), "MANI - Germanic Lunar Calendar");
+    // Create the application window
+    lunar_app->window = gtk_application_window_new(app);
+    gtk_window_set_title(GTK_WINDOW(lunar_app->window), "MANI - Lunar Calendar");
+    gtk_window_set_default_size(GTK_WINDOW(lunar_app->window), 
+                              lunar_app->config->window_width, 
+                              lunar_app->config->window_height);
     
-    // Apply configuration
-    if (cal_app->config) {
-        config_apply(cal_app, cal_app->config);
-    } else {
-        // Default window size if no config
-        gtk_window_set_default_size(GTK_WINDOW(cal_app->window), 800, 600);
-    }
+    // Connect window destroy signal
+    g_signal_connect(lunar_app->window, "destroy", G_CALLBACK(on_window_destroy), lunar_app);
     
-    // Connect destroy signal
-    g_signal_connect(cal_app->window, "destroy", G_CALLBACK(on_window_destroy), cal_app);
+    // Store app data in the application for global access
+    g_object_set_data(G_OBJECT(app), "app_data", lunar_app);
     
     // Build the UI
-    build_ui(cal_app);
+    build_ui(lunar_app);
     
-    // Show the window and all of its contents
-    gtk_widget_show_all(cal_app->window);
+    // Show the window and all its contents
+    gtk_widget_show_all(lunar_app->window);
+    
+    // Hide the metonic cycle status bar if not enabled in config
+    if (lunar_app->metonic_cycle_bar && !lunar_app->config->show_metonic_cycle) {
+        gtk_widget_hide(lunar_app->metonic_cycle_bar);
+    }
 }
 
-// Build the user interface
+/**
+ * Build the application UI
+ */
 static void build_ui(LunarCalendarApp* app) {
-    // Create a vertical box for the main layout
-    GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_container_add(GTK_CONTAINER(app->window), main_box);
+    // Create the main window
+    app->window = gtk_application_window_new(app->app);
+    gtk_window_set_title(GTK_WINDOW(app->window), "MANI - Germanic Lunar Calendar");
+    gtk_window_set_default_size(GTK_WINDOW(app->window), 800, 600);
     
-    // Get current date info
-    time_t now = time(NULL);
-    struct tm* tm_now = localtime(&now);
-    int current_year = tm_now->tm_year + 1900;
+    // Create header bar
+    app->header_bar = gtk_header_bar_new();
+    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(app->header_bar), TRUE);
+    
+    // Calculate and show Eld Year in title
+    GDate today;
+    g_date_set_time_t(&today, time(NULL));
+    int current_year = g_date_get_year(&today);
     int eld_year = calculate_eld_year(current_year);
     
-    // Create header bar with controls
-    app->header_bar = gtk_header_bar_new();
     char title[100];
     snprintf(title, sizeof(title), "MANI - Eld Year %d", eld_year);
     gtk_header_bar_set_title(GTK_HEADER_BAR(app->header_bar), title);
-    gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), "Germanic Lunar Calendar");
-    gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(app->header_bar), TRUE);
+    
+    // Add settings button to the header bar
+    GtkWidget* settings_button = gtk_button_new_from_icon_name("preferences-system-symbolic", GTK_ICON_SIZE_BUTTON);
+    gtk_widget_set_tooltip_text(settings_button, "Settings");
+    g_signal_connect(settings_button, "clicked", G_CALLBACK(on_settings_clicked), app);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(app->header_bar), settings_button);
+    
     gtk_window_set_titlebar(GTK_WINDOW(app->window), app->header_bar);
+    
+    // Create main layout
+    app->main_layout = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(app->window), app->main_layout);
+    
+    // Create horizontal layout for sidebar and calendar
+    GtkWidget* content_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_box_pack_start(GTK_BOX(app->main_layout), content_box, TRUE, TRUE, 0);
+    
+    // Create sidebar (fixed width 200px)
+    app->sidebar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_size_request(app->sidebar, 200, -1);
+    gtk_container_set_border_width(GTK_CONTAINER(app->sidebar), 10);
+    gtk_box_pack_start(GTK_BOX(content_box), app->sidebar, FALSE, FALSE, 0);
+
+    // Add sidebar separator
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
+    gtk_box_pack_start(GTK_BOX(content_box), separator, FALSE, FALSE, 0);
     
     // Create navigation controls
     GtkWidget* nav_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_box_pack_start(GTK_BOX(app->main_layout), nav_box, FALSE, FALSE, 5);
     
     // Previous month button
-    GtkWidget* prev_button = gtk_button_new_from_icon_name("go-previous-symbolic", GTK_ICON_SIZE_BUTTON);
-    gtk_widget_set_tooltip_text(prev_button, "Previous Month");
+    GtkWidget* prev_button = gtk_button_new_with_label("◀ Previous");
     g_signal_connect(prev_button, "clicked", G_CALLBACK(on_prev_month), app);
-    gtk_container_add(GTK_CONTAINER(nav_box), prev_button);
+    gtk_box_pack_start(GTK_BOX(nav_box), prev_button, FALSE, FALSE, 0);
     
     // Month selector
     GtkWidget* month_combo = gtk_combo_box_text_new();
-    for (int i = 0; i < 12; i++) {
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(month_combo), 
-                                       (i < 12) ? 
-                                       (i == 0 ? "January" : 
-                                        i == 1 ? "February" : 
-                                        i == 2 ? "March" : 
-                                        i == 3 ? "April" : 
-                                        i == 4 ? "May" : 
-                                        i == 5 ? "June" : 
-                                        i == 6 ? "July" : 
-                                        i == 7 ? "August" : 
-                                        i == 8 ? "September" : 
-                                        i == 9 ? "October" : 
-                                        i == 10 ? "November" : "December") 
-                                       : "Thirteenth");
+    for (int i = 1; i <= 13; i++) {
+        char month_name[32];
+        lunar_get_month_name(i, month_name, sizeof(month_name));
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(month_combo), month_name);
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(month_combo), app->current_month - 1);
     g_signal_connect(month_combo, "changed", G_CALLBACK(on_month_changed), app);
-    gtk_container_add(GTK_CONTAINER(nav_box), month_combo);
+    gtk_box_pack_start(GTK_BOX(nav_box), month_combo, FALSE, FALSE, 0);
     
     // Year selector
-    GtkWidget* year_spin = gtk_spin_button_new_with_range(1, 9999, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(year_spin), app->current_year);
-    g_signal_connect(year_spin, "value-changed", G_CALLBACK(on_year_changed), app);
-    gtk_container_add(GTK_CONTAINER(nav_box), year_spin);
+    GtkWidget* year_selector = gtk_spin_button_new_with_range(1900, 2100, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(year_selector), app->current_year);
+    g_signal_connect(year_selector, "value-changed", G_CALLBACK(on_year_changed), app);
+    gtk_box_pack_start(GTK_BOX(nav_box), year_selector, FALSE, FALSE, 0);
     
     // Next month button
-    GtkWidget* next_button = gtk_button_new_from_icon_name("go-next-symbolic", GTK_ICON_SIZE_BUTTON);
-    gtk_widget_set_tooltip_text(next_button, "Next Month");
+    GtkWidget* next_button = gtk_button_new_with_label("Next ▶");
     g_signal_connect(next_button, "clicked", G_CALLBACK(on_next_month), app);
-    gtk_container_add(GTK_CONTAINER(nav_box), next_button);
+    gtk_box_pack_start(GTK_BOX(nav_box), next_button, FALSE, FALSE, 0);
     
-    // Add navigation controls to header bar
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(app->header_bar), nav_box);
+    // Eld Year label
+    app->year_label = gtk_label_new(NULL);
+    char eld_year_text[50];
+    snprintf(eld_year_text, sizeof(eld_year_text), "Eld Year: %d", eld_year);
+    gtk_label_set_text(GTK_LABEL(app->year_label), eld_year_text);
+    gtk_box_pack_end(GTK_BOX(nav_box), app->year_label, FALSE, FALSE, 0);
     
-    // Create menu button for settings
-    GtkWidget* menu_button = gtk_menu_button_new();
-    gtk_button_set_image(GTK_BUTTON(menu_button), 
-                         gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON));
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(app->header_bar), menu_button);
+    // Create calendar scrolled window
+    GtkWidget* scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
+                                  GTK_POLICY_AUTOMATIC,
+                                  GTK_POLICY_AUTOMATIC);
+    gtk_box_pack_start(GTK_BOX(content_box), scrolled_window, TRUE, TRUE, 0);
     
-    // Create horizontal box for main content
-    GtkWidget* content_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_box_pack_start(GTK_BOX(main_box), content_box, TRUE, TRUE, 0);
-    
-    // Create sidebar for additional info
-    app->sidebar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_set_size_request(app->sidebar, 200, -1);
-    gtk_box_pack_start(GTK_BOX(content_box), app->sidebar, FALSE, FALSE, 0);
-    
-    // Create a scrolled window for the calendar view
-    GtkWidget* scroll = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), 
-                                   GTK_POLICY_AUTOMATIC, 
-                                   GTK_POLICY_AUTOMATIC);
-    gtk_box_pack_start(GTK_BOX(content_box), scroll, TRUE, TRUE, 0);
-    
-    // Create an empty calendar view (will be populated later)
+    // Create calendar view container
     app->calendar_view = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(app->calendar_view), 1);
-    gtk_grid_set_column_spacing(GTK_GRID(app->calendar_view), 1);
     gtk_container_set_border_width(GTK_CONTAINER(app->calendar_view), 10);
-    gtk_container_add(GTK_CONTAINER(scroll), app->calendar_view);
+    gtk_container_add(GTK_CONTAINER(scrolled_window), app->calendar_view);
     
     // Create status bar
     app->status_bar = gtk_statusbar_new();
-    gtk_box_pack_end(GTK_BOX(main_box), app->status_bar, FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(app->main_layout), app->status_bar, FALSE, FALSE, 0);
     
-    // Create year label for top header (this will be populated in update_header)
-    app->year_label = gtk_label_new("");
-    PangoAttrList* year_attrs = pango_attr_list_new();
-    pango_attr_list_insert(year_attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
-    gtk_label_set_attributes(GTK_LABEL(app->year_label), year_attrs);
-    pango_attr_list_unref(year_attrs);
+    // Initialize the metonic cycle status bar (if enabled in config)
+    init_metonic_cycle_bar(app);
     
-    // We will populate the sidebar in update_sidebar
-    // Update everything
-    update_ui(app);
+    // Update calendar view with current month
+    update_calendar_view(app);
     
-    // Push a status message
-    gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, 
-                      "Ready - Displaying MANI Germanic lunar calendar");
+    // Update sidebar
+    update_sidebar(app);
+    
+    // Connect signals
+    g_signal_connect(app->window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    
+    // Show all widgets
+    gtk_widget_show_all(app->window);
 }
 
 // Update the calendar view to show the current LUNAR month
@@ -1403,4 +1446,173 @@ static gboolean on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointe
     
     // Return TRUE to indicate the event was handled and stop propagation
     return TRUE;
+}
+
+/**
+ * Initialize the metonic cycle status bar.
+ * Creates a status bar at the bottom of the window showing the current position
+ * in the 19-year metonic cycle.
+ */
+static void init_metonic_cycle_bar(LunarCalendarApp* app) {
+    if (app->metonic_cycle_bar != NULL) {
+        gtk_widget_destroy(app->metonic_cycle_bar);
+    }
+    
+    // Only show if enabled in settings
+    if (!app->config->show_metonic_cycle) {
+        app->metonic_cycle_bar = NULL;
+        return;
+    }
+    
+    // Create a new status bar
+    app->metonic_cycle_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_container_set_border_width(GTK_CONTAINER(app->metonic_cycle_bar), 2);
+    
+    // Add to the main window layout
+    gtk_box_pack_end(GTK_BOX(app->main_layout), app->metonic_cycle_bar, FALSE, FALSE, 0);
+    
+    // Create label for the metonic cycle info
+    app->metonic_cycle_label = gtk_label_new("");
+    gtk_widget_set_halign(app->metonic_cycle_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(app->metonic_cycle_bar), app->metonic_cycle_label, FALSE, FALSE, 5);
+    
+    // Create a progress bar for the visual indication
+    app->metonic_cycle_progress = gtk_progress_bar_new();
+    gtk_progress_bar_set_show_text(GTK_PROGRESS_BAR(app->metonic_cycle_progress), TRUE);
+    gtk_widget_set_size_request(app->metonic_cycle_progress, 200, -1);
+    gtk_box_pack_start(GTK_BOX(app->metonic_cycle_bar), app->metonic_cycle_progress, FALSE, FALSE, 5);
+    
+    // Add help button
+    GtkWidget* help_button = gtk_button_new_with_label("?");
+    gtk_widget_set_tooltip_text(help_button, "What is the Metonic Cycle?");
+    gtk_box_pack_end(GTK_BOX(app->metonic_cycle_bar), help_button, FALSE, FALSE, 5);
+    g_signal_connect(help_button, "clicked", G_CALLBACK(on_metonic_help_clicked), app);
+    
+    // Show all widgets
+    gtk_widget_show_all(app->metonic_cycle_bar);
+    
+    // Update the metonic cycle information
+    update_metonic_cycle_display(app);
+}
+
+/**
+ * Update the metonic cycle status bar.
+ * Calculates the current year's position in the 19-year metonic cycle
+ * and updates the display.
+ */
+static void update_metonic_cycle_display(LunarCalendarApp* app) {
+    if (app->metonic_cycle_bar == NULL || !app->config->show_metonic_cycle) {
+        return;
+    }
+    
+    // Get the current year
+    GDate date;
+    g_date_set_time_t(&date, time(NULL));
+    int current_year = g_date_get_year(&date);
+    
+    // Calculate position in metonic cycle (1-19)
+    // The metonic cycle is 19 years long, with the years starting at 1
+    int metonic_year = ((current_year + 1) % 19);
+    if (metonic_year == 0) {
+        metonic_year = 19;
+    }
+    
+    // Update the label
+    char cycle_text[128];
+    snprintf(cycle_text, sizeof(cycle_text), "Metonic Cycle Year %d of 19", metonic_year);
+    gtk_label_set_text(GTK_LABEL(app->metonic_cycle_label), cycle_text);
+    
+    // Update the progress bar
+    double progress = (double)metonic_year / 19.0;
+    gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(app->metonic_cycle_progress), progress);
+    
+    // Set the progress bar text
+    char progress_text[32];
+    snprintf(progress_text, sizeof(progress_text), "%d/19", metonic_year);
+    gtk_progress_bar_set_text(GTK_PROGRESS_BAR(app->metonic_cycle_progress), progress_text);
+}
+
+/**
+ * Handle the metonic cycle help button click.
+ * Shows a dialog with information about the metonic cycle.
+ */
+static void on_metonic_help_clicked(GtkButton* button, gpointer user_data) {
+    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
+    
+    GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(app->window),
+                                             GTK_DIALOG_MODAL,
+                                             GTK_MESSAGE_INFO,
+                                             GTK_BUTTONS_OK,
+                                             "The Metonic Cycle");
+    
+    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
+        "The Metonic Cycle is a period of 19 years in which the phases of the moon recur on the same day of the year.\n\n"
+        "This cycle is the basis for many lunar calendars, including the Germanic lunar calendar. "
+        "It was discovered by the ancient Greek astronomer Meton in the 5th century BCE.\n\n"
+        "The cycle consists of 19 years, containing 235 lunar months. "
+        "These 235 months are divided into 125 full months of 30 days and 110 hollow months of 29 days.\n\n"
+        "In practical terms, 12 of the 19 years have 12 lunar months (ordinary years) while 7 years have 13 lunar months "
+        "(intercalary years).\n\n"
+        "The progress bar shows the current position in the 19-year cycle.");
+    
+    gtk_window_set_title(GTK_WINDOW(dialog), "Metonic Cycle Information");
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+/**
+ * Update the UI components based on the current configuration.
+ * This is called when settings are changed.
+ */
+static void update_ui_from_config(LunarCalendarApp* app) {
+    if (!app) return;
+    
+    // Update theme based on settings
+    GtkSettings* settings = gtk_settings_get_default();
+    if (settings) {
+        g_object_set(settings, "gtk-application-prefer-dark-theme", app->config->use_dark_theme, NULL);
+    }
+    
+    // Update metonic cycle bar visibility
+    if (app->metonic_cycle_bar) {
+        if (app->config->show_metonic_cycle) {
+            gtk_widget_show(app->metonic_cycle_bar);
+            update_metonic_cycle_display(app);
+        } else {
+            gtk_widget_hide(app->metonic_cycle_bar);
+        }
+    }
+    
+    // Update calendar view
+    update_calendar_view(app);
+    
+    // Update month label (to show custom month names)
+    update_month_label(app);
+    
+    // Update sidebar if it exists
+    if (app->sidebar) {
+        update_sidebar(app);
+    }
+    
+    // Update header
+    update_header(app);
+    
+    // Redraw the entire window to reflect changes
+    if (app->window) {
+        gtk_widget_queue_draw(app->window);
+    }
+}
+
+/**
+ * Handle settings button click.
+ * Opens the settings dialog.
+ */
+static void on_settings_clicked(GtkButton* button, gpointer user_data) {
+    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
+    
+    // Show the settings dialog
+    if (settings_dialog_show(app, GTK_WINDOW(app->window))) {
+        // Settings were changed and saved
+        update_ui_from_config(app);
+    }
 } 

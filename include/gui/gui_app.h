@@ -15,6 +15,18 @@ typedef struct {
     GtkWidget *sidebar;
     GtkWidget *status_bar;
     GtkWidget *year_label;  // Added for Eld Year display
+    GtkWidget *main_layout; // Main box layout
+    
+    // Metonic cycle status bar
+    GtkWidget *metonic_cycle_bar;
+    GtkWidget *metonic_cycle_label;
+    GtkWidget *metonic_cycle_progress;
+    
+    // Settings dialog tabs
+    GtkWidget *appearance_tab;
+    GtkWidget *display_tab;
+    GtkWidget *names_tab;
+    GtkWidget *advanced_tab;
     
     // Current view state
     int current_year;

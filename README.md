@@ -1,76 +1,78 @@
-# Lunar Calendar - Metonic Cycle Implementation
+# Lunar Calendar Application
 
-This is a C implementation of a lunar calendar based on the Metonic cycle, which is a 19-year period after which the phases of the moon recur on the same day of the year.
+A GTK-based lunar calendar application that displays traditional lunar calendar data alongside Gregorian dates.
 
 ## Features
 
-* Conversion between Gregorian and lunar dates
-* Calculation of the Germanic Eld year (starting from 750 BC as the epoch)
-* Moon phase determination for any given date
-* Complete 19-year Metonic cycle calculation
-* Command-line interface for testing the calculations
+- Display lunar dates alongside Gregorian calendar
+- Show moon phases for each day
+- Navigate through months and years
+- Track special days (new moons, full moons, solstices, equinoxes)
+- Display detailed information for each day
+- Save and load user preferences
 
-## Data Structures
+## Building
 
-The implementation provides the following key data structures:
+### Prerequisites
 
-* `LunarDay` - Represents a single day with both lunar and Gregorian date information
-* `LunarMonth` - Represents a lunar month (29-30 days)
-* `LunarYear` - Represents a lunar year (collection of lunar months)
-* `MetonicCycle` - Represents the complete 19-year Metonic cycle
+- GCC or compatible C compiler
+- GTK 3.0 development libraries
+- Make
 
-## Building the Project
-
-Requirements:
-* C compiler (GCC recommended)
-* Make
-
-To build the project:
-
+On Debian/Ubuntu:
+```bash
+sudo apt-get install build-essential libgtk-3-dev
 ```
+
+On Fedora/RHEL:
+```bash
+sudo dnf install gcc make gtk3-devel
+```
+
+### Compilation
+
+1. To build the command-line version:
+```bash
 make
 ```
 
-This will create the executable in the `bin` directory.
-
-## Usage
-
-Run the program:
-
+2. To build the GUI version:
+```bash
+make gui
 ```
+
+### Running
+
+1. Command-line version:
+```bash
 ./bin/lunar_calendar
 ```
 
-### Available Commands
-
-* `today` - Display lunar date for today
-* `g2l YYYY MM DD` - Convert Gregorian date to lunar date
-* `l2g YYYY MM DD` - Convert lunar date to Gregorian date
-* `phase YYYY MM DD` - Show moon phase for Gregorian date
-* `eld YYYY` - Calculate Germanic Eld year for Gregorian year
-* `cycle YYYY` - Display Metonic cycle starting from year YYYY
-* `help` - Display help information
-* `quit` - Exit the program
-
-### Examples
-
-Convert Gregorian date to lunar date:
-```
-> g2l 2025 1 1
+2. GUI version:
+```bash
+./bin/lunar_calendar_gui
 ```
 
-Check the moon phase for a specific date:
-```
-> phase 2025 12 25
-```
+## Configuration
 
-Calculate the Eld year:
-```
-> eld 2025
-```
+The application stores its configuration in `~/.lunar_calendar/config.ini`. This file is automatically created with default values if it doesn't exist.
 
-## Implementation Notes
+## Command Line Usage
 
-* The lunar calendar calculations are based on approximations using the Metonic cycle.
-* The moon phase calculation uses a simple mathematical model based on known new moon dates.
-* The Germanic Eld year is calculated as the Gregorian year + 750 (using 750 BC as the epoch). 
+The command-line version supports various commands:
+
+- `today` - Display lunar date for today
+- `g2l YYYY MM DD` - Convert Gregorian date to lunar date
+- `l2g YYYY MM DD` - Convert lunar date to Gregorian date
+- `phase YYYY MM DD` - Show moon phase for Gregorian date
+- `render_month YYYY MM` - Render a lunar month calendar
+- `seasons YYYY` - Display solstices and equinoxes for a year
+
+## License
+
+This project is open source software.
+
+## Acknowledgments
+
+- Based on astronomical algorithms from Jean Meeus
+- Uses GTK for the graphical user interface 

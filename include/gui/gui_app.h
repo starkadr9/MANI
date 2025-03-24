@@ -4,9 +4,7 @@
 #include <gtk/gtk.h>
 #include "../lunar_calendar.h"
 #include "../lunar_renderer.h"
-
-// Forward declaration for config structure
-typedef struct LunarCalendarConfig LunarCalendarConfig;
+#include "config.h"
 
 // GUI application structure
 typedef struct {
@@ -30,26 +28,26 @@ typedef struct {
     
     // Configuration
     char *config_file_path;
+    char *events_file_path;
     LunarCalendarConfig *config;
+    
+    // Today's date (for highlighting)
+    int today_year;
+    int today_month;
+    int today_day;
+    
+    // Selected day (for event editing)
+    int selected_day_year;
+    int selected_day_month;
+    int selected_day_day;
+    
+    // Event editor widgets
+    GtkWidget *event_editor;
+    GtkWidget *event_list;
+    GtkWidget *event_title_entry;
+    GtkWidget *event_desc_text;
+    GtkWidget *event_color_button;
 } LunarCalendarApp;
-
-// Configuration structure
-typedef struct LunarCalendarConfig {
-    // Display options
-    gboolean show_gregorian_dates;
-    gboolean show_moon_phases;
-    gboolean show_weekday_names;
-    gboolean highlight_special_days;
-    gboolean use_dark_theme;
-    
-    // Calendar options
-    int start_day_of_week;  // 0=Sunday, 1=Monday, etc.
-    
-    // UI options
-    int window_width;
-    int window_height;
-    double ui_scale;
-} LunarCalendarConfig;
 
 // Initialize the GUI application
 LunarCalendarApp* gui_app_init(int* argc, char*** argv);

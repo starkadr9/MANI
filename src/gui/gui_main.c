@@ -7,8 +7,17 @@
 #include "../../include/gui/gui_app.h"
 #include "../../include/gui/config.h"
 #include "../../include/gui/calendar_adapter.h"
+#include "../../include/gui/calendar_events.h"
 #include "../../include/lunar_calendar.h"
 #include "../../include/lunar_renderer.h"
+
+// Data structure for day click event
+typedef struct {
+    LunarCalendarApp* app;
+    int year;
+    int month;
+    int day;
+} DayClickData;
 
 // Get weekday name
 static const char* get_weekday_name(Weekday weekday) {
@@ -37,6 +46,11 @@ static void update_header(LunarCalendarApp* app);
 static void update_sidebar(LunarCalendarApp* app);
 static void update_ui(LunarCalendarApp* app);
 static void update_month_label(LunarCalendarApp* app);
+static void on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
+static void update_event_editor(LunarCalendarApp* app);
+static void on_add_event(GtkWidget* widget, gpointer user_data);
+static void on_edit_event(GtkWidget* widget, gpointer user_data);
+static void on_delete_event(GtkWidget* widget, gpointer user_data);
 
 int main(int argc, char** argv) {
     // Initialize the GUI application
@@ -57,46 +71,64 @@ int main(int argc, char** argv) {
 
 // Initialize the GUI application
 LunarCalendarApp* gui_app_init(int* argc, char*** argv) {
-    // Initialize GTK
     gtk_init(argc, argv);
     
-    // Allocate the application structure
+    // Initialize the application
     LunarCalendarApp* app = g_malloc0(sizeof(LunarCalendarApp));
-    if (!app) {
-        return NULL;
-    }
-    
-    // Create the GTK application
     app->app = gtk_application_new("org.lunar.mani", G_APPLICATION_FLAGS_NONE);
-    if (!app->app) {
-        g_free(app);
-        return NULL;
-    }
     
-    // Set up signals
+    // Connect the activate signal
     g_signal_connect(app->app, "activate", G_CALLBACK(activate), app);
     
-    // Get current date for initial view
+    // Create a config structure with default values
+    app->config = config_get_defaults();
+    
+    // Get the user's home directory for config
+    const char* home_dir = g_get_home_dir();
+    char* config_dir = g_build_filename(home_dir, ".config", "lunar_calendar", NULL);
+    
+    // Create the config directory if it doesn't exist
+    g_mkdir_with_parents(config_dir, 0755);
+    
+    // Set config file path
+    app->config_file_path = g_build_filename(config_dir, "config.json", NULL);
+    
+    // Set events file path
+    app->events_file_path = g_build_filename(config_dir, "events.json", NULL);
+    
+    // Try to load config file
+    LunarCalendarConfig* loaded_config = config_load(app->config_file_path);
+    if (loaded_config) {
+        // Replace default config with loaded config
+        config_free(app->config);
+        app->config = loaded_config;
+    } else {
+        // Save default config
+        config_save(app->config_file_path, app->config);
+    }
+    
+    // Initialize the events system
+    events_init(app->events_file_path);
+    
+    // Get the current date for initializing the view
     time_t now = time(NULL);
-    struct tm* tm_now = localtime(&now);
-    app->current_year = tm_now->tm_year + 1900;
-    app->current_month = tm_now->tm_mon + 1; // GTK months are 1-12
+    struct tm* current_time = localtime(&now);
     
-    // Load configuration
-    app->config_file_path = config_get_file_path();
-    LunarCalendarConfig* config = NULL;
+    app->current_year = current_time->tm_year + 1900;
+    app->current_month = current_time->tm_mon + 1;
     
-    if (app->config_file_path) {
-        config = config_load(app->config_file_path);
-    }
+    // Store today's date for highlighting
+    app->today_year = app->current_year;
+    app->today_month = app->current_month;
+    app->today_day = current_time->tm_mday;
     
-    // If config couldn't be loaded, use defaults
-    if (!config) {
-        config = config_get_defaults();
-    }
+    // Initialize selected day to today
+    app->selected_day_year = app->today_year;
+    app->selected_day_month = app->today_month;
+    app->selected_day_day = app->today_day;
     
-    // Apply configuration (this will be fully applied when the window is created)
-    app->config = config;
+    // Clean up
+    g_free(config_dir);
     
     return app;
 }
@@ -108,24 +140,42 @@ int gui_app_run(LunarCalendarApp* app) {
 
 // Clean up resources
 void gui_app_cleanup(LunarCalendarApp* app) {
-    if (!app) {
-        return;
+    if (app) {
+        // Save configuration
+        if (app->config && app->config_file_path) {
+            config_save(app->config_file_path, app->config);
+        }
+        
+        // Save events
+        if (app->events_file_path) {
+            events_save(app->events_file_path);
+        }
+        
+        // Free configuration
+        if (app->config) {
+            config_free(app->config);
+        }
+        
+        // Free paths
+        if (app->config_file_path) {
+            g_free(app->config_file_path);
+        }
+        
+        if (app->events_file_path) {
+            g_free(app->events_file_path);
+        }
+        
+        // Clean up events system
+        events_cleanup();
+        
+        // Unreference GTK application
+        if (app->app) {
+            g_object_unref(app->app);
+        }
+        
+        // Free the structure
+        g_free(app);
     }
-    
-    // Save configuration before exiting
-    if (app->config && app->config_file_path) {
-        config_save(app->config_file_path, app->config);
-        config_free(app->config);
-    }
-    
-    // Free the application object
-    g_object_unref(app->app);
-    
-    // Free configuration path
-    g_free(app->config_file_path);
-    
-    // Free the application structure
-    g_free(app);
 }
 
 // Callback when application is activated
@@ -272,10 +322,10 @@ static void build_ui(LunarCalendarApp* app) {
 
 // Update the calendar view to show the current LUNAR month
 static void update_calendar_view(LunarCalendarApp* app) {
-    // Clear existing calendar view
+    // Clear the calendar view
     GList* children = gtk_container_get_children(GTK_CONTAINER(app->calendar_view));
-    for (GList* child = children; child != NULL; child = child->next) {
-        gtk_widget_destroy(GTK_WIDGET(child->data));
+    for (GList* iter = children; iter != NULL; iter = g_list_next(iter)) {
+        gtk_widget_destroy(GTK_WIDGET(iter->data));
     }
     g_list_free(children);
     
@@ -509,7 +559,7 @@ static void update_calendar_view(LunarCalendarApp* app) {
         gtk_widget_set_halign(day_number, GTK_ALIGN_START);
         gtk_box_pack_start(GTK_BOX(day_box), day_number, FALSE, FALSE, 0);
         
-        // Get lunar date info
+        // Get Gregorian date info
         int greg_year = current_date_in_month.year;
         int greg_month = current_date_in_month.month;
         int greg_day = current_date_in_month.day;
@@ -541,6 +591,27 @@ static void update_calendar_view(LunarCalendarApp* app) {
         
         gtk_box_pack_start(GTK_BOX(day_box), moon_phase, FALSE, FALSE, 0);
         
+        // If this day has events, add an indicator
+        if (event_date_has_events(greg_year, greg_month, greg_day)) {
+            GtkWidget* event_indicator = gtk_label_new("📅");  // Calendar emoji
+            gtk_widget_set_halign(event_indicator, GTK_ALIGN_START);
+            gtk_box_pack_start(GTK_BOX(day_box), event_indicator, FALSE, FALSE, 0);
+        }
+        
+        // Make the day cell clickable for event editing
+        gtk_widget_add_events(day_frame, GDK_BUTTON_PRESS_MASK);
+        
+        // Create a struct to pass data to the click handler
+        DayClickData* click_data = g_malloc(sizeof(DayClickData));
+        click_data->app = app;
+        click_data->year = greg_year;
+        click_data->month = greg_month;
+        click_data->day = greg_day;
+        
+        g_signal_connect_data(day_frame, "button-press-event", 
+                            G_CALLBACK(on_day_clicked), 
+                            click_data, (GClosureNotify)g_free, 0);
+        
         // Set tooltip with full information
         gtk_widget_set_tooltip_text(day_frame, day_cell->tooltip_text);
         
@@ -568,12 +639,28 @@ static void update_calendar_view(LunarCalendarApp* app) {
             gtk_widget_override_background_color(day_frame, GTK_STATE_FLAG_NORMAL, &color);
         }
         
+        // Check for custom event color
+        GdkRGBA event_color;
+        if (event_get_date_color(greg_year, greg_month, greg_day, &event_color)) {
+            // Apply custom event color
+            gtk_widget_override_background_color(day_frame, GTK_STATE_FLAG_NORMAL, &event_color);
+        }
+        
         // Highlight today's date
         if (day_cell->is_today) {
             gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_IN);
             GtkWidget* today_label = gtk_label_new("Today");
             gtk_widget_set_halign(today_label, GTK_ALIGN_START);
             gtk_box_pack_start(GTK_BOX(day_box), today_label, FALSE, FALSE, 0);
+        }
+        
+        // Highlight selected day (if any)
+        if (greg_year == app->selected_day_year && 
+            greg_month == app->selected_day_month && 
+            greg_day == app->selected_day_day) {
+            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
+            gtk_style_context_add_class(context, "selected-day");
+            gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_OUT);
         }
         
         // Add the day cell to the grid
@@ -679,6 +766,7 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
     }
 }
 
+/* Update the sidebar with current date information */
 /* Update the sidebar with current date information including a wireframe moon phase */
 static void update_sidebar(LunarCalendarApp* app) {
     // Clear existing widgets
@@ -733,8 +821,429 @@ static void update_sidebar(LunarCalendarApp* app) {
     GtkWidget* phase_label = gtk_label_new(calendar_adapter_get_moon_phase_name(lunar_day.moon_phase));
     gtk_box_pack_start(GTK_BOX(vbox), phase_label, FALSE, FALSE, 5);
     
+    // Add a separator before the event editor
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_pack_start(GTK_BOX(vbox), separator, FALSE, FALSE, 10);
+    
+    // Add event editor section
+    GtkWidget* event_frame = gtk_frame_new("Event Editor");
+    gtk_box_pack_start(GTK_BOX(vbox), event_frame, TRUE, TRUE, 0);
+    
+    // Create event editor box
+    app->event_editor = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_container_add(GTK_CONTAINER(event_frame), app->event_editor);
+    
     // Make all widgets visible
     gtk_widget_show_all(app->sidebar);
+    
+    // Update the event editor with the selected date's events
+    update_event_editor(app);
+}
+
+// Implement the update_event_editor function
+static void update_event_editor(LunarCalendarApp* app) {
+    if (!app->event_editor) {
+        return;
+    }
+    
+    // Clear the existing event editor content
+    GList* children = gtk_container_get_children(GTK_CONTAINER(app->event_editor));
+    for (GList* iter = children; iter != NULL; iter = g_list_next(iter)) {
+        gtk_widget_destroy(GTK_WIDGET(iter->data));
+    }
+    g_list_free(children);
+    
+    // Add a label showing the selected date
+    char date_str[128];
+    snprintf(date_str, sizeof(date_str), "Date: %04d-%02d-%02d", 
+             app->selected_day_year, app->selected_day_month, app->selected_day_day);
+    GtkWidget* date_label = gtk_label_new(date_str);
+    gtk_widget_set_halign(date_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(app->event_editor), date_label, FALSE, FALSE, 5);
+    
+    // Get events for the selected date
+    EventList* events = event_get_for_date(
+        app->selected_day_year, app->selected_day_month, app->selected_day_day);
+    
+    // Create a scrolled window for the event list
+    GtkWidget* scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), 
+                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(scroll), 100);
+    gtk_box_pack_start(GTK_BOX(app->event_editor), scroll, TRUE, TRUE, 5);
+    
+    // Create a list box for events
+    app->event_list = gtk_list_box_new();
+    gtk_container_add(GTK_CONTAINER(scroll), app->event_list);
+    
+    // Add events to the list
+    if (events && events->count > 0) {
+        for (int i = 0; i < events->count; i++) {
+            CalendarEvent* event = events->events[i];
+            
+            // Create a box for each event
+            GtkWidget* event_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+            
+            // Color indicator
+            if (event->has_custom_color) {
+                GtkWidget* color_box = gtk_event_box_new();
+                gtk_widget_set_size_request(color_box, 10, -1);
+                gtk_widget_override_background_color(color_box, GTK_STATE_FLAG_NORMAL, &event->color);
+                gtk_box_pack_start(GTK_BOX(event_box), color_box, FALSE, FALSE, 0);
+            }
+            
+            // Event title (with edit button)
+            GtkWidget* title_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+            GtkWidget* title_label = gtk_label_new(event->title);
+            gtk_widget_set_halign(title_label, GTK_ALIGN_START);
+            gtk_box_pack_start(GTK_BOX(title_box), title_label, FALSE, FALSE, 0);
+            
+            // Short preview of the description
+            if (event->description && strlen(event->description) > 0) {
+                char preview[40];
+                strncpy(preview, event->description, sizeof(preview) - 4);
+                preview[sizeof(preview) - 4] = '\0';
+                if (strlen(event->description) > sizeof(preview) - 4) {
+                    strcat(preview, "...");
+                }
+                
+                GtkWidget* desc_label = gtk_label_new(preview);
+                gtk_widget_set_halign(desc_label, GTK_ALIGN_START);
+                gtk_label_set_line_wrap(GTK_LABEL(desc_label), TRUE);
+                PangoAttrList* attrs = pango_attr_list_new();
+                pango_attr_list_insert(attrs, pango_attr_style_new(PANGO_STYLE_ITALIC));
+                gtk_label_set_attributes(GTK_LABEL(desc_label), attrs);
+                pango_attr_list_unref(attrs);
+                gtk_box_pack_start(GTK_BOX(title_box), desc_label, FALSE, FALSE, 0);
+            }
+            
+            gtk_box_pack_start(GTK_BOX(event_box), title_box, TRUE, TRUE, 2);
+            
+            // Edit button
+            GtkWidget* edit_button = gtk_button_new_from_icon_name("document-edit-symbolic", GTK_ICON_SIZE_BUTTON);
+            gtk_widget_set_tooltip_text(edit_button, "Edit event");
+            g_object_set_data(G_OBJECT(edit_button), "event-index", GINT_TO_POINTER(i));
+            g_signal_connect(edit_button, "clicked", G_CALLBACK(on_edit_event), app);
+            gtk_box_pack_start(GTK_BOX(event_box), edit_button, FALSE, FALSE, 2);
+            
+            // Delete button
+            GtkWidget* delete_button = gtk_button_new_from_icon_name("edit-delete-symbolic", GTK_ICON_SIZE_BUTTON);
+            gtk_widget_set_tooltip_text(delete_button, "Delete event");
+            g_object_set_data(G_OBJECT(delete_button), "event-index", GINT_TO_POINTER(i));
+            g_signal_connect(delete_button, "clicked", G_CALLBACK(on_delete_event), app);
+            gtk_box_pack_start(GTK_BOX(event_box), delete_button, FALSE, FALSE, 2);
+            
+            // Add the event box to the list
+            GtkWidget* list_item = gtk_list_box_row_new();
+            gtk_container_add(GTK_CONTAINER(list_item), event_box);
+            gtk_list_box_insert(GTK_LIST_BOX(app->event_list), list_item, -1);
+        }
+    } else {
+        // No events message
+        GtkWidget* no_events = gtk_label_new("No events for this date");
+        gtk_widget_set_sensitive(no_events, FALSE);
+        gtk_list_box_insert(GTK_LIST_BOX(app->event_list), no_events, -1);
+    }
+    
+    // Add a separator
+    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_box_pack_start(GTK_BOX(app->event_editor), separator, FALSE, FALSE, 5);
+    
+    // Add the event creation form
+    GtkWidget* form_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_box_pack_start(GTK_BOX(app->event_editor), form_box, FALSE, FALSE, 0);
+    
+    // Title field
+    GtkWidget* title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    GtkWidget* title_label = gtk_label_new("Title:");
+    gtk_widget_set_halign(title_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(title_box), title_label, FALSE, FALSE, 5);
+    
+    app->event_title_entry = gtk_entry_new();
+    gtk_box_pack_start(GTK_BOX(title_box), app->event_title_entry, TRUE, TRUE, 5);
+    gtk_box_pack_start(GTK_BOX(form_box), title_box, FALSE, FALSE, 5);
+    
+    // Description field
+    GtkWidget* desc_label = gtk_label_new("Description:");
+    gtk_widget_set_halign(desc_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(form_box), desc_label, FALSE, FALSE, 5);
+    
+    GtkWidget* desc_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(desc_scroll), 
+                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(desc_scroll, -1, 80);
+    gtk_box_pack_start(GTK_BOX(form_box), desc_scroll, TRUE, TRUE, 0);
+    
+    app->event_desc_text = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(app->event_desc_text), GTK_WRAP_WORD);
+    GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->event_desc_text));
+    gtk_text_buffer_set_text(buffer, "", -1);  // Initialize with empty text
+    gtk_container_add(GTK_CONTAINER(desc_scroll), app->event_desc_text);
+    
+    // Color selection
+    GtkWidget* color_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    GtkWidget* color_label = gtk_label_new("Custom Color:");
+    gtk_widget_set_halign(color_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(color_box), color_label, FALSE, FALSE, 5);
+    
+    app->event_color_button = gtk_color_button_new();
+    // Set a default muted color
+    GdkRGBA default_color = {0.8, 0.9, 0.8, 0.3};
+    gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(app->event_color_button), &default_color);
+    gtk_color_button_set_use_alpha(GTK_COLOR_BUTTON(app->event_color_button), TRUE);
+    gtk_box_pack_start(GTK_BOX(color_box), app->event_color_button, TRUE, TRUE, 5);
+    
+    gtk_box_pack_start(GTK_BOX(form_box), color_box, FALSE, FALSE, 5);
+    
+    // Add button
+    GtkWidget* add_button = gtk_button_new_with_label("Add Event");
+    g_signal_connect(add_button, "clicked", G_CALLBACK(on_add_event), app);
+    gtk_box_pack_start(GTK_BOX(form_box), add_button, FALSE, FALSE, 5);
+    
+    // Free event list
+    if (events) {
+        event_list_free(events);
+    }
+    
+    // Show all widgets
+    gtk_widget_show_all(app->event_editor);
+}
+
+// Add event handler
+static void on_add_event(GtkWidget* widget, gpointer user_data) {
+    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
+    
+    // Get the event title
+    const char* title = gtk_entry_get_text(GTK_ENTRY(app->event_title_entry));
+    if (!title || strlen(title) == 0) {
+        // Show an error message if the title is empty
+        GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(app->window),
+                                                  GTK_DIALOG_MODAL,
+                                                  GTK_MESSAGE_ERROR,
+                                                  GTK_BUTTONS_OK,
+                                                  "Event title cannot be empty");
+        gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+        return;
+    }
+    
+    // Get the event description
+    GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(app->event_desc_text));
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    char* description = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    
+    // Get the event color
+    GdkRGBA color;
+    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(app->event_color_button), &color);
+    
+    // Add the event
+    bool success = event_add(app->selected_day_year, app->selected_day_month, 
+                            app->selected_day_day, title, description, &color);
+    
+    // Free the description
+    g_free(description);
+    
+    if (success) {
+        // Clear the form
+        gtk_entry_set_text(GTK_ENTRY(app->event_title_entry), "");
+        gtk_text_buffer_set_text(buffer, "", 0);
+        
+        // Save events
+        if (app->events_file_path) {
+            events_save(app->events_file_path);
+        }
+        
+        // Update the UI
+        update_event_editor(app);
+        update_calendar_view(app);
+    } else {
+        // Show an error message
+        GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(app->window),
+                                                  GTK_DIALOG_MODAL,
+                                                  GTK_MESSAGE_ERROR,
+                                                  GTK_BUTTONS_OK,
+                                                  "Failed to add event");
+        gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+    }
+}
+
+// Edit event handler
+static void on_edit_event(GtkWidget* widget, gpointer user_data) {
+    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
+    
+    // Get the event index
+    int event_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "event-index"));
+    
+    // Get the event
+    EventList* events = event_get_for_date(
+        app->selected_day_year, app->selected_day_month, app->selected_day_day);
+    
+    if (!events || event_index >= events->count) {
+        if (events) {
+            event_list_free(events);
+        }
+        return;
+    }
+    
+    CalendarEvent* event = events->events[event_index];
+    
+    // Create a dialog for editing
+    GtkWidget* dialog = gtk_dialog_new_with_buttons("Edit Event",
+                                                   GTK_WINDOW(app->window),
+                                                   GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                   "Cancel", GTK_RESPONSE_CANCEL,
+                                                   "Save", GTK_RESPONSE_ACCEPT,
+                                                   NULL);
+    
+    // Create the content area
+    GtkWidget* content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    gtk_container_set_border_width(GTK_CONTAINER(content_area), 10);
+    gtk_box_set_spacing(GTK_BOX(content_area), 10);
+    
+    // Title field
+    GtkWidget* title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    GtkWidget* title_label = gtk_label_new("Title:");
+    gtk_widget_set_halign(title_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(title_box), title_label, FALSE, FALSE, 5);
+    
+    GtkWidget* title_entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(title_entry), event->title);
+    gtk_box_pack_start(GTK_BOX(title_box), title_entry, TRUE, TRUE, 5);
+    gtk_box_pack_start(GTK_BOX(content_area), title_box, FALSE, FALSE, 5);
+    
+    // Description field
+    GtkWidget* desc_label = gtk_label_new("Description:");
+    gtk_widget_set_halign(desc_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(content_area), desc_label, FALSE, FALSE, 5);
+    
+    GtkWidget* desc_scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(desc_scroll), 
+                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(desc_scroll, 300, 100);
+    gtk_box_pack_start(GTK_BOX(content_area), desc_scroll, TRUE, TRUE, 0);
+    
+    GtkWidget* desc_text = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(desc_text), GTK_WRAP_WORD);
+    GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(desc_text));
+    gtk_text_buffer_set_text(buffer, event->description, -1);
+    gtk_container_add(GTK_CONTAINER(desc_scroll), desc_text);
+    
+    // Color selection
+    GtkWidget* color_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    GtkWidget* color_label = gtk_label_new("Custom Color:");
+    gtk_widget_set_halign(color_label, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(color_box), color_label, FALSE, FALSE, 5);
+    
+    GtkWidget* color_button = gtk_color_button_new();
+    if (event->has_custom_color) {
+        gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(color_button), &event->color);
+    } else {
+        GdkRGBA default_color = {0.8, 0.9, 0.8, 0.3};
+        gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(color_button), &default_color);
+    }
+    gtk_color_button_set_use_alpha(GTK_COLOR_BUTTON(color_button), TRUE);
+    gtk_box_pack_start(GTK_BOX(color_box), color_button, TRUE, TRUE, 5);
+    gtk_box_pack_start(GTK_BOX(content_area), color_box, FALSE, FALSE, 5);
+    
+    // Show all widgets
+    gtk_widget_show_all(dialog);
+    
+    // Run the dialog
+    int result = gtk_dialog_run(GTK_DIALOG(dialog));
+    
+    if (result == GTK_RESPONSE_ACCEPT) {
+        // Get the updated values
+        const char* new_title = gtk_entry_get_text(GTK_ENTRY(title_entry));
+        
+        GtkTextIter start, end;
+        gtk_text_buffer_get_bounds(buffer, &start, &end);
+        char* new_description = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+        
+        GdkRGBA new_color;
+        gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(color_button), &new_color);
+        
+        // Update the event
+        bool success = event_update(app->selected_day_year, app->selected_day_month, 
+                                   app->selected_day_day, event_index, 
+                                   new_title, new_description, &new_color);
+        
+        // Free the description
+        g_free(new_description);
+        
+        if (success) {
+            // Save events
+            if (app->events_file_path) {
+                events_save(app->events_file_path);
+            }
+            
+            // Update the UI
+            update_event_editor(app);
+            update_calendar_view(app);
+        } else {
+            // Show an error message
+            GtkWidget* error_dialog = gtk_message_dialog_new(GTK_WINDOW(app->window),
+                                                           GTK_DIALOG_MODAL,
+                                                           GTK_MESSAGE_ERROR,
+                                                           GTK_BUTTONS_OK,
+                                                           "Failed to update event");
+            gtk_dialog_run(GTK_DIALOG(error_dialog));
+            gtk_widget_destroy(error_dialog);
+        }
+    }
+    
+    // Free events
+    event_list_free(events);
+    
+    // Destroy the dialog
+    gtk_widget_destroy(dialog);
+}
+
+// Delete event handler
+static void on_delete_event(GtkWidget* widget, gpointer user_data) {
+    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
+    
+    // Get the event index
+    int event_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "event-index"));
+    
+    // Confirm the deletion
+    GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(app->window),
+                                              GTK_DIALOG_MODAL,
+                                              GTK_MESSAGE_QUESTION,
+                                              GTK_BUTTONS_YES_NO,
+                                              "Are you sure you want to delete this event?");
+    
+    int result = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+    
+    if (result != GTK_RESPONSE_YES) {
+        return;
+    }
+    
+    // Delete the event
+    bool success = event_delete(app->selected_day_year, app->selected_day_month, 
+                               app->selected_day_day, event_index);
+    
+    if (success) {
+        // Save events
+        if (app->events_file_path) {
+            events_save(app->events_file_path);
+        }
+        
+        // Update the UI
+        update_event_editor(app);
+        update_calendar_view(app);
+    } else {
+        // Show an error message
+        GtkWidget* error_dialog = gtk_message_dialog_new(GTK_WINDOW(app->window),
+                                                        GTK_DIALOG_MODAL,
+                                                        GTK_MESSAGE_ERROR,
+                                                        GTK_BUTTONS_OK,
+                                                        "Failed to delete event");
+        gtk_dialog_run(GTK_DIALOG(error_dialog));
+        gtk_widget_destroy(error_dialog);
+    }
 }
 
 /* Update the header with year information */
@@ -770,4 +1279,28 @@ static void update_month_label(LunarCalendarApp* app) {
         
         gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), month_text);
     }
+}
+
+// Day click handler
+static void on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    DayClickData* data = (DayClickData*)user_data;
+    LunarCalendarApp* app = data->app;
+    
+    // Update the selected day
+    app->selected_day_year = data->year;
+    app->selected_day_month = data->month;
+    app->selected_day_day = data->day;
+    
+    // Update status message
+    char status_msg[256];
+    snprintf(status_msg, sizeof(status_msg), 
+            "Selected day: %04d-%02d-%02d", 
+            app->selected_day_year, app->selected_day_month, app->selected_day_day);
+    gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, status_msg);
+    
+    // Update the calendar to highlight the selected day
+    update_calendar_view(app);
+    
+    // Update the event editor in the sidebar
+    update_event_editor(app);
 } 

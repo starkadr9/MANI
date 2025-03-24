@@ -48,6 +48,29 @@ char* config_get_file_path(void) {
     return config_file;
 }
 
+// Get the default events file path
+char* events_get_file_path(void) {
+    const char* home_dir = g_get_home_dir();
+    if (!home_dir) {
+        return NULL;
+    }
+    
+    // Create the config directory path
+    char* config_dir = g_build_filename(home_dir, CONFIG_DIR_NAME, NULL);
+    
+    // Make sure the directory exists
+    if (g_mkdir_with_parents(config_dir, 0700) != 0) {
+        g_free(config_dir);
+        return NULL;
+    }
+    
+    // Create the events file path
+    char* events_file = g_build_filename(config_dir, "events.dat", NULL);
+    g_free(config_dir);
+    
+    return events_file;
+}
+
 // Load configuration from file
 LunarCalendarConfig* config_load(const char* file_path) {
     if (!file_path) {
@@ -141,37 +164,45 @@ LunarCalendarConfig* config_load(const char* file_path) {
 }
 
 // Save configuration to file
-gboolean config_save(const char* file_path, LunarCalendarConfig* config) {
+bool config_save(const char* file_path, LunarCalendarConfig* config) {
     if (!file_path || !config) {
-        return FALSE;
+        return false;
     }
     
-    // Create a key file object
     GKeyFile* key_file = g_key_file_new();
     
-    // Add display options
-    g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "show_gregorian_dates", config->show_gregorian_dates);
+    // Display section
     g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "show_moon_phases", config->show_moon_phases);
-    g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "show_weekday_names", config->show_weekday_names);
     g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "highlight_special_days", config->highlight_special_days);
+    g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "show_gregorian_dates", config->show_gregorian_dates);
+    g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "show_weekday_names", config->show_weekday_names);
     g_key_file_set_boolean(key_file, CONFIG_SECTION_DISPLAY, "use_dark_theme", config->use_dark_theme);
     
-    // Add calendar options
+    // Calendar section
     g_key_file_set_integer(key_file, CONFIG_SECTION_CALENDAR, "start_day_of_week", config->start_day_of_week);
+    g_key_file_set_integer(key_file, CONFIG_SECTION_CALENDAR, "calendar_type", config->calendar_type);
     
-    // Add UI options
+    // UI section
     g_key_file_set_integer(key_file, CONFIG_SECTION_UI, "window_width", config->window_width);
     g_key_file_set_integer(key_file, CONFIG_SECTION_UI, "window_height", config->window_height);
     g_key_file_set_double(key_file, CONFIG_SECTION_UI, "ui_scale", config->ui_scale);
     
-    // Save the file
+    // Save to file
     GError* error = NULL;
-    gboolean success = g_key_file_save_to_file(key_file, file_path, &error);
-    if (!success) {
+    gsize length = 0;
+    gchar* data = g_key_file_to_data(key_file, &length, &error);
+    
+    bool success = false;
+    
+    if (data && !error) {
+        success = g_file_set_contents(file_path, data, length, &error);
+    }
+    
+    if (error) {
         g_error_free(error);
     }
     
-    // Free the key file
+    g_free(data);
     g_key_file_free(key_file);
     
     return success;
@@ -199,7 +230,8 @@ LunarCalendarConfig* config_get_defaults(void) {
 }
 
 // Apply configuration to the application
-void config_apply(LunarCalendarApp* app, LunarCalendarConfig* config) {
+void config_apply(void* app_ptr, LunarCalendarConfig* config) {
+    LunarCalendarApp* app = (LunarCalendarApp*)app_ptr;
     if (!app || !config) {
         return;
     }
@@ -211,14 +243,13 @@ void config_apply(LunarCalendarApp* app, LunarCalendarConfig* config) {
                                    config->window_height);
     }
     
-    // Apply dark theme
-    GtkSettings* settings = gtk_settings_get_default();
-    if (settings) {
-        g_object_set(settings, "gtk-application-prefer-dark-theme", config->use_dark_theme, NULL);
+    // Apply dark theme if requested
+    if (config->use_dark_theme) {
+        GtkSettings* settings = gtk_settings_get_default();
+        if (settings) {
+            g_object_set(settings, "gtk-application-prefer-dark-theme", config->use_dark_theme, NULL);
+        }
     }
-    
-    // Other config options would be applied to relevant widgets
-    // For now, we just have window size and dark theme
 }
 
 // Free configuration structure

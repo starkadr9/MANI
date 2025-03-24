@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 #include <gtk/gtk.h>
-#include "gui_app.h"
+#include <stdbool.h>
 
 // Config file section names
 #define CONFIG_SECTION_DISPLAY "Display"
@@ -24,22 +24,42 @@
 #define CONFIG_DIR_NAME ".lunar_calendar"
 #define CONFIG_FILE_NAME "config.ini"
 
+// Default calendar type
+#define DEFAULT_CALENDAR_TYPE 1  // 1 = Germanic
+
+// Configuration structure
+typedef struct {
+    int window_width;
+    int window_height;
+    bool show_moon_phases;
+    bool highlight_special_days;
+    int calendar_type;    // 0 = Traditional, 1 = Germanic
+    bool show_gregorian_dates;
+    bool show_weekday_names;
+    bool use_dark_theme;
+    int start_day_of_week;  // 0=Sunday, 1=Monday, etc.
+    double ui_scale;
+} LunarCalendarConfig;
+
 // Get the path to the configuration file
 char* config_get_file_path(void);
 
+// Get the default events file path
+char* events_get_file_path(void);
+
 // Load configuration from file
-LunarCalendarConfig* config_load(const char* file_path);
+LunarCalendarConfig* config_load(const char* filename);
 
 // Save configuration to file
-gboolean config_save(const char* file_path, LunarCalendarConfig* config);
+bool config_save(const char* filename, LunarCalendarConfig* config);
+
+// Free configuration
+void config_free(LunarCalendarConfig* config);
 
 // Get default configuration
 LunarCalendarConfig* config_get_defaults(void);
 
-// Apply configuration to the application
-void config_apply(LunarCalendarApp* app, LunarCalendarConfig* config);
-
-// Free configuration structure
-void config_free(LunarCalendarConfig* config);
+// Apply configuration to app
+void config_apply(void* app, LunarCalendarConfig* config);
 
 #endif /* CONFIG_H */ 

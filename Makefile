@@ -1,53 +1,43 @@
-CC=gcc
-CFLAGS=-Wall -Wextra -g -std=c99 -I./include
-LDFLAGS=-lm
+CC = gcc
+CFLAGS = -Wall -g -O2 `pkg-config --cflags gtk+-3.0 json-glib-1.0`
+LDFLAGS = `pkg-config --libs gtk+-3.0 json-glib-1.0` -lm
 
-# GTK flags
-GTK_CFLAGS=$(shell pkg-config --cflags gtk+-3.0)
-GTK_LDFLAGS=$(shell pkg-config --libs gtk+-3.0)
+OBJ_DIR = obj
+BIN_DIR = bin
 
-SRC_DIR=src
-OBJ_DIR=obj
-BIN_DIR=bin
-GUI_SRC_DIR=$(SRC_DIR)/gui
+# Source files
+SRCS_CORE = src/lunar_calendar.c src/lunar_renderer.c src/main.c
+SRCS_GUI = src/gui/gui_main.c src/gui/calendar_adapter.c src/gui/config.c src/gui/calendar_events.c
+OBJS_CORE = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS_CORE))
+OBJS_GUI = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SRCS_GUI))
 
-SRCS=$(wildcard $(SRC_DIR)/*.c)
-OBJS=$(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
-TARGET=$(BIN_DIR)/lunar_calendar
+# Core objects without main.o for gui target
+CORE_NO_MAIN = $(filter-out $(OBJ_DIR)/main.o, $(OBJS_CORE))
 
-# GUI application
-GUI_SRCS=$(wildcard $(GUI_SRC_DIR)/*.c)
-GUI_OBJS=$(patsubst $(GUI_SRC_DIR)/%.c,$(OBJ_DIR)/gui/%.o,$(GUI_SRCS))
-CALENDAR_OBJS=$(filter-out $(OBJ_DIR)/main.o, $(OBJS))
-GUI_TARGET=$(BIN_DIR)/lunar_calendar_gui
+# Header files
+INCLUDE_DIR = include
 
-.PHONY: all gui clean
+# Targets
+all: core gui
 
-all: directories $(TARGET)
+core: $(BIN_DIR)/lunar_calendar
 
-gui: directories $(GUI_TARGET)
+gui: $(BIN_DIR)/lunar_calendar_gui
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+# Rules
+$(BIN_DIR)/lunar_calendar: $(OBJS_CORE)
+	mkdir -p $(BIN_DIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(GUI_TARGET): $(GUI_OBJS) $(CALENDAR_OBJS)
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -o $@ $^ $(LDFLAGS) $(GTK_LDFLAGS)
+$(BIN_DIR)/lunar_calendar_gui: $(CORE_NO_MAIN) $(OBJS_GUI)
+	mkdir -p $(BIN_DIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+$(OBJ_DIR)/%.o: src/%.c
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I$(INCLUDE_DIR) -c $< -o $@
 
-$(OBJ_DIR)/gui/%.o: $(GUI_SRC_DIR)/%.c
-	mkdir -p $(OBJ_DIR)/gui
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -c $< -o $@
-
-directories:
-	mkdir -p $(OBJ_DIR) $(BIN_DIR)
+.PHONY: clean
 
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR)
-
-run: all
-	$(TARGET)
-
-run-gui: gui
-	$(GUI_TARGET) 
+	rm -rf $(OBJ_DIR) $(BIN_DIR) 

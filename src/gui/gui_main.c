@@ -221,7 +221,7 @@ static void activate(GtkApplication* app, gpointer user_data) {
     
     // Create the application window
     lunar_app->window = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(lunar_app->window), "MANI - Lunar Calendar");
+    gtk_window_set_title(GTK_WINDOW(lunar_app->window), "MANI - Germanic Lunar Calendar");
     gtk_window_set_default_size(GTK_WINDOW(lunar_app->window), 
                               lunar_app->config->window_width, 
                               lunar_app->config->window_height);
@@ -547,16 +547,48 @@ static void update_calendar_view(LunarCalendarApp* app) {
             app->current_year);
     gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), header);
     
-    // Add day name headers
+    // Add day name headers based on week start preference
     const char* day_names[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    for (int col = 0; col < 7; col++) {
-        GtkWidget* day_label = gtk_label_new(day_names[col]);
-        gtk_widget_set_hexpand(day_label, TRUE);
-        gtk_grid_attach(GTK_GRID(app->calendar_view), day_label, col, 0, 1, 1);
+    
+    // Only show weekday headers if the setting is enabled
+    if (app->config && app->config->show_weekday_names) {
+        int week_start = 0; // Default to Sunday (0)
+        if (app->config && app->config->week_start_day >= 0 && app->config->week_start_day <= 2) {
+            // 0 = Sunday, 1 = Monday, 2 = Saturday
+            if (app->config->week_start_day == 1) {
+                week_start = 1; // Monday
+            } else if (app->config->week_start_day == 2) {
+                week_start = 6; // Saturday
+            }
+        }
+        
+        for (int i = 0; i < 7; i++) {
+            int day_index = (week_start + i) % 7;
+            
+            // Use custom weekday names if available
+            const char* day_name = day_names[day_index];
+            if (app->config->custom_weekday_names[day_index] && 
+                strlen(app->config->custom_weekday_names[day_index]) > 0) {
+                day_name = app->config->custom_weekday_names[day_index];
+            }
+            
+            GtkWidget* day_label = gtk_label_new(day_name);
+            gtk_widget_set_hexpand(day_label, TRUE);
+            gtk_grid_attach(GTK_GRID(app->calendar_view), day_label, i, 0, 1, 1);
+        }
     }
     
     // Find the day of week for the full moon (start of lunar month)
     Weekday first_day_weekday = calculate_weekday(month_start.year, month_start.month, month_start.day);
+    
+    // Adjust first day column based on week start preference
+    if (app->config && app->config->week_start_day >= 0 && app->config->week_start_day <= 2) {
+        if (app->config->week_start_day == 1) { // Monday
+            first_day_weekday = (first_day_weekday == 0) ? 6 : first_day_weekday - 1;
+        } else if (app->config->week_start_day == 2) { // Saturday
+            first_day_weekday = (first_day_weekday + 1) % 7;
+        }
+    }
     
     // Push a status message to indicate the calendar type
     char status_msg[256];
@@ -568,7 +600,10 @@ static void update_calendar_view(LunarCalendarApp* app) {
     gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, status_msg);
     
     // Fill in the calendar grid
-    int row = 1;
+    int row = 1; // Start at row 1 if showing headers, otherwise start at row 0
+    if (!app->config || !app->config->show_weekday_names) {
+        row = 0; // If not showing weekday names, start the grid at row 0
+    }
     int col = first_day_weekday;
     
     // Current date for tracking
@@ -1406,8 +1441,16 @@ static void update_month_label(LunarCalendarApp* app) {
     
     if (app->current_month >= 1 && app->current_month <= 13) {
         char month_text[100];
+        
+        // Use custom month name if available
+        const char* month_name = month_names[app->current_month - 1];
+        if (app->config && app->config->custom_month_names[app->current_month - 1] && 
+            strlen(app->config->custom_month_names[app->current_month - 1]) > 0) {
+            month_name = app->config->custom_month_names[app->current_month - 1];
+        }
+        
         snprintf(month_text, sizeof(month_text), "Month %d: %s", 
-                 app->current_month, month_names[app->current_month - 1]);
+                 app->current_month, month_name);
         
         gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), month_text);
     }
@@ -1572,6 +1615,54 @@ static void update_ui_from_config(LunarCalendarApp* app) {
     if (settings) {
         g_object_set(settings, "gtk-application-prefer-dark-theme", app->config->use_dark_theme, NULL);
     }
+    
+    // Apply custom fonts, colors and cell size using CSS
+    GtkCssProvider* provider = gtk_css_provider_new();
+    GString* css_string = g_string_new("");
+    
+    // Apply font if set
+    if (app->config->font_name && strlen(app->config->font_name) > 0) {
+        g_string_append_printf(css_string, 
+            "* { font-family: %s; }\n", 
+            app->config->font_name);
+    }
+    
+    // Apply colors
+    g_string_append_printf(css_string,
+        ".primary-color { color: rgba(%d,%d,%d,%.2f); }\n"
+        ".secondary-color { color: rgba(%d,%d,%d,%.2f); }\n"
+        ".cell-content { color: rgba(%d,%d,%d,%.2f); }\n",
+        (int)(app->config->primary_color.red * 255),
+        (int)(app->config->primary_color.green * 255),
+        (int)(app->config->primary_color.blue * 255),
+        app->config->primary_color.alpha,
+        (int)(app->config->secondary_color.red * 255),
+        (int)(app->config->secondary_color.green * 255),
+        (int)(app->config->secondary_color.blue * 255),
+        app->config->secondary_color.alpha,
+        (int)(app->config->text_color.red * 255),
+        (int)(app->config->text_color.green * 255),
+        (int)(app->config->text_color.blue * 255),
+        app->config->text_color.alpha);
+    
+    // Set cell size
+    if (app->config->cell_size > 0) {
+        g_string_append_printf(css_string,
+            ".day-cell { min-width: %dpx; min-height: %dpx; }\n",
+            app->config->cell_size, app->config->cell_size);
+    }
+    
+    // Load the CSS if we have any
+    if (css_string->len > 0) {
+        gtk_css_provider_load_from_data(provider, css_string->str, -1, NULL);
+        gtk_style_context_add_provider_for_screen(
+            gdk_screen_get_default(),
+            GTK_STYLE_PROVIDER(provider),
+            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    }
+    
+    g_string_free(css_string, TRUE);
+    g_object_unref(provider);
     
     // Update metonic cycle bar visibility
     if (app->metonic_cycle_bar) {

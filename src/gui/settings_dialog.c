@@ -158,6 +158,11 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent) {
         if (response == GTK_RESPONSE_OK) {
             break;
         }
+        
+        // For APPLY, also update the UI to reflect the changes immediately
+        if (response == GTK_RESPONSE_APPLY) {
+            update_ui_from_config(app);
+        }
     }
     
     // Save settings if they were changed
@@ -437,6 +442,10 @@ static GtkWidget* create_names_tab(LunarCalendarApp* app, SettingsWidgets* widge
                                   GTK_POLICY_NEVER,
                                   GTK_POLICY_AUTOMATIC);
     gtk_container_add(GTK_CONTAINER(grid), scrolled);
+    
+    // Make the scrolled window expand to fill available space
+    gtk_widget_set_hexpand(scrolled, TRUE);
+    gtk_widget_set_vexpand(scrolled, TRUE);
     
     // Create a vertical box to hold the month and weekday sections
     GtkWidget* content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
@@ -963,6 +972,9 @@ static void apply_settings(LunarCalendarApp* app) {
                     g_free(app->config->custom_month_names[i]);
                 }
                 app->config->custom_month_names[i] = g_strdup(text);
+                
+                // Debug output to verify names are being saved
+                g_print("Saved custom month name for month %d: '%s'\n", i + 1, text);
             } else if (app->config->custom_month_names[i]) {
                 g_free(app->config->custom_month_names[i]);
                 app->config->custom_month_names[i] = NULL;

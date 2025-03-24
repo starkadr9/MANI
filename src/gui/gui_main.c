@@ -46,7 +46,7 @@ static void update_header(LunarCalendarApp* app);
 static void update_sidebar(LunarCalendarApp* app);
 static void update_ui(LunarCalendarApp* app);
 static void update_month_label(LunarCalendarApp* app);
-static void on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
+static gboolean on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer user_data);
 static void update_event_editor(LunarCalendarApp* app);
 static void on_add_event(GtkWidget* widget, gpointer user_data);
 static void on_edit_event(GtkWidget* widget, gpointer user_data);
@@ -541,9 +541,26 @@ static void update_calendar_view(LunarCalendarApp* app) {
         gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_IN);
         gtk_widget_set_size_request(day_frame, 80, 80);
         
+        // Create an event box to properly capture events
+        GtkWidget* event_box = gtk_event_box_new();
+        gtk_container_add(GTK_CONTAINER(day_frame), event_box);
+        
+        // Make it obvious that the day is clickable
+        GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
+        gtk_style_context_add_class(context, "day-cell");
+        
+        // Add CSS to make it look interactive
+        GtkCssProvider* day_provider = gtk_css_provider_new();
+        const char* day_css = ".day-cell:hover { background-color: rgba(120, 120, 120, 0.2); }";
+        gtk_css_provider_load_from_data(day_provider, day_css, -1, NULL);
+        gtk_style_context_add_provider(context, 
+                                    GTK_STYLE_PROVIDER(day_provider), 
+                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(day_provider);
+        
         // Create a box for the day content
         GtkWidget* day_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-        gtk_container_add(GTK_CONTAINER(day_frame), day_box);
+        gtk_container_add(GTK_CONTAINER(event_box), day_box);
         
         // Lunar day number (this is the primary display)
         char day_str[10];
@@ -598,19 +615,21 @@ static void update_calendar_view(LunarCalendarApp* app) {
             gtk_box_pack_start(GTK_BOX(day_box), event_indicator, FALSE, FALSE, 0);
         }
         
-        // Make the day cell clickable for event editing
-        gtk_widget_add_events(day_frame, GDK_BUTTON_PRESS_MASK);
+        // Make sure the event box can receive events
+        gtk_widget_add_events(event_box, GDK_BUTTON_PRESS_MASK);
         
-        // Create a struct to pass data to the click handler
+        // Create the click data - store directly on the widget 
         DayClickData* click_data = g_malloc(sizeof(DayClickData));
         click_data->app = app;
         click_data->year = greg_year;
         click_data->month = greg_month;
         click_data->day = greg_day;
         
-        g_signal_connect_data(day_frame, "button-press-event", 
-                            G_CALLBACK(on_day_clicked), 
-                            click_data, (GClosureNotify)g_free, 0);
+        // Store the click data as object data on the event box so it will be freed when the widget is destroyed
+        g_object_set_data_full(G_OBJECT(event_box), "click-data", click_data, g_free);
+        
+        // Connect to the button-press-event signal with the click data
+        g_signal_connect(event_box, "button-press-event", G_CALLBACK(on_day_clicked), NULL);
         
         // Set tooltip with full information
         gtk_widget_set_tooltip_text(day_frame, day_cell->tooltip_text);
@@ -634,16 +653,46 @@ static void update_calendar_view(LunarCalendarApp* app) {
         
         // Highlight special days if configured
         if (app->config && app->config->highlight_special_days && day_cell->is_special_day) {
+            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
+            gtk_style_context_add_class(context, "special-day");
+            
+            // Add custom CSS for the special day
+            GtkCssProvider* provider = gtk_css_provider_new();
             GdkRGBA color;
             calendar_adapter_get_special_day_color(day_cell->special_day_type, &color);
-            gtk_widget_override_background_color(day_frame, GTK_STATE_FLAG_NORMAL, &color);
+            
+            char css[256];
+            snprintf(css, sizeof(css), 
+                    ".special-day { background-color: rgba(%d, %d, %d, %f); }",
+                    (int)(color.red * 255), (int)(color.green * 255), 
+                    (int)(color.blue * 255), color.alpha);
+                    
+            gtk_css_provider_load_from_data(provider, css, -1, NULL);
+            gtk_style_context_add_provider(context, 
+                                        GTK_STYLE_PROVIDER(provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(provider);
         }
         
         // Check for custom event color
         GdkRGBA event_color;
         if (event_get_date_color(greg_year, greg_month, greg_day, &event_color)) {
-            // Apply custom event color
-            gtk_widget_override_background_color(day_frame, GTK_STATE_FLAG_NORMAL, &event_color);
+            // Apply custom event color using CSS
+            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
+            gtk_style_context_add_class(context, "event-day");
+            
+            GtkCssProvider* provider = gtk_css_provider_new();
+            char css[256];
+            snprintf(css, sizeof(css), 
+                    ".event-day { background-color: rgba(%d, %d, %d, %f); }",
+                    (int)(event_color.red * 255), (int)(event_color.green * 255), 
+                    (int)(event_color.blue * 255), event_color.alpha);
+                    
+            gtk_css_provider_load_from_data(provider, css, -1, NULL);
+            gtk_style_context_add_provider(context, 
+                                        GTK_STYLE_PROVIDER(provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(provider);
         }
         
         // Highlight today's date
@@ -660,6 +709,16 @@ static void update_calendar_view(LunarCalendarApp* app) {
             greg_day == app->selected_day_day) {
             GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
             gtk_style_context_add_class(context, "selected-day");
+            
+            // Apply bold styling to selected day using CSS
+            GtkCssProvider* provider = gtk_css_provider_new();
+            const char* css = ".selected-day { border: 2px solid #3584e4; background-color: rgba(53, 132, 228, 0.3); }";
+            gtk_css_provider_load_from_data(provider, css, -1, NULL);
+            gtk_style_context_add_provider(context, 
+                                        GTK_STYLE_PROVIDER(provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(provider);
+            
             gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_OUT);
         }
         
@@ -763,6 +822,16 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
         gtk_window_get_size(GTK_WINDOW(app->window), &width, &height);
         app->config->window_width = width;
         app->config->window_height = height;
+    }
+    
+    // Clean up any other resources that need to be freed
+    if (app && app->calendar_view) {
+        // Clear calendar view (which also cleans up signal handlers and their data)
+        GList* children = gtk_container_get_children(GTK_CONTAINER(app->calendar_view));
+        for (GList* iter = children; iter != NULL; iter = g_list_next(iter)) {
+            gtk_widget_destroy(GTK_WIDGET(iter->data));
+        }
+        g_list_free(children);
     }
 }
 
@@ -886,10 +955,25 @@ static void update_event_editor(LunarCalendarApp* app) {
             
             // Color indicator
             if (event->has_custom_color) {
-                GtkWidget* color_box = gtk_event_box_new();
-                gtk_widget_set_size_request(color_box, 10, -1);
-                gtk_widget_override_background_color(color_box, GTK_STATE_FLAG_NORMAL, &event->color);
-                gtk_box_pack_start(GTK_BOX(event_box), color_box, FALSE, FALSE, 0);
+                GtkWidget* color_box = gtk_frame_new(NULL);
+                gtk_widget_set_size_request(color_box, 16, 16);
+                
+                // Apply the event color using CSS
+                GtkStyleContext* context = gtk_widget_get_style_context(color_box);
+                gtk_style_context_add_class(context, "event-color");
+                
+                GtkCssProvider* provider = gtk_css_provider_new();
+                char css[256];
+                snprintf(css, sizeof(css), 
+                        ".event-color { background-color: rgba(%d, %d, %d, %f); }",
+                        (int)(event->color.red * 255), (int)(event->color.green * 255), 
+                        (int)(event->color.blue * 255), event->color.alpha);
+                        
+                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+                gtk_style_context_add_provider(context, 
+                                            GTK_STYLE_PROVIDER(provider), 
+                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+                g_object_unref(provider);
             }
             
             // Event title (with edit button)
@@ -987,10 +1071,12 @@ static void update_event_editor(LunarCalendarApp* app) {
     gtk_box_pack_start(GTK_BOX(color_box), color_label, FALSE, FALSE, 5);
     
     app->event_color_button = gtk_color_button_new();
-    // Set a default muted color
+    gtk_widget_set_tooltip_text(app->event_color_button, "Choose custom color for this event");
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(app->event_color_button), TRUE);
+    
+    // Set a default color
     GdkRGBA default_color = {0.8, 0.9, 0.8, 0.3};
     gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(app->event_color_button), &default_color);
-    gtk_color_button_set_use_alpha(GTK_COLOR_BUTTON(app->event_color_button), TRUE);
     gtk_box_pack_start(GTK_BOX(color_box), app->event_color_button, TRUE, TRUE, 5);
     
     gtk_box_pack_start(GTK_BOX(form_box), color_box, FALSE, FALSE, 5);
@@ -1137,13 +1223,16 @@ static void on_edit_event(GtkWidget* widget, gpointer user_data) {
     gtk_box_pack_start(GTK_BOX(color_box), color_label, FALSE, FALSE, 5);
     
     GtkWidget* color_button = gtk_color_button_new();
+    gtk_widget_set_tooltip_text(color_button, "Choose custom color for this event");
+    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(color_button), TRUE);
+    
+    // Set the current color
     if (event->has_custom_color) {
         gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(color_button), &event->color);
     } else {
         GdkRGBA default_color = {0.8, 0.9, 0.8, 0.3};
         gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(color_button), &default_color);
     }
-    gtk_color_button_set_use_alpha(GTK_COLOR_BUTTON(color_button), TRUE);
     gtk_box_pack_start(GTK_BOX(color_box), color_button, TRUE, TRUE, 5);
     gtk_box_pack_start(GTK_BOX(content_area), color_box, FALSE, FALSE, 5);
     
@@ -1282,8 +1371,16 @@ static void update_month_label(LunarCalendarApp* app) {
 }
 
 // Day click handler
-static void on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
-    DayClickData* data = (DayClickData*)user_data;
+static gboolean on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer user_data) {
+    // Get the click data from the widget
+    DayClickData* data = g_object_get_data(G_OBJECT(widget), "click-data");
+    if (!data) {
+        g_print("ERROR: No click data found on widget\n");
+        return FALSE;
+    }
+    
+    g_print("Day clicked: %04d-%02d-%02d\n", data->year, data->month, data->day);
+    
     LunarCalendarApp* app = data->app;
     
     // Update the selected day
@@ -1303,4 +1400,7 @@ static void on_day_clicked(GtkWidget* widget, GdkEventButton* event, gpointer us
     
     // Update the event editor in the sidebar
     update_event_editor(app);
+    
+    // Return TRUE to indicate the event was handled and stop propagation
+    return TRUE;
 } 

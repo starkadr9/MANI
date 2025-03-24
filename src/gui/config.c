@@ -211,39 +211,42 @@ LunarCalendarConfig* config_load(const char* filename) {
         }
     }
     
-    // Names section - load custom month names
+    // Names section - load custom lunar month names
     for (int i = 0; i < 13; i++) {
         char key[32];
-        snprintf(key, sizeof(key), "month_%d_name", i + 1);
-        
+        snprintf(key, sizeof(key), "month_%d", i + 1);
         if (g_key_file_has_key(key_file, CONFIG_SECTION_NAMES, key, NULL)) {
             char* month_name = g_key_file_get_string(key_file, CONFIG_SECTION_NAMES, key, NULL);
-            if (month_name && strlen(month_name) > 0) {
-                if (config->custom_month_names[i]) {
-                    g_free(config->custom_month_names[i]);
-                }
-                config->custom_month_names[i] = month_name; // Ownership transferred
-            } else {
-                g_free(month_name);
+            if (config->custom_month_names[i]) {
+                g_free(config->custom_month_names[i]);
             }
+            config->custom_month_names[i] = month_name; // Ownership transferred
         }
     }
     
     // Names section - load custom weekday names
     for (int i = 0; i < 7; i++) {
         char key[32];
-        snprintf(key, sizeof(key), "weekday_%d_name", i + 1);
-        
+        snprintf(key, sizeof(key), "weekday_%d", i);
         if (g_key_file_has_key(key_file, CONFIG_SECTION_NAMES, key, NULL)) {
             char* weekday_name = g_key_file_get_string(key_file, CONFIG_SECTION_NAMES, key, NULL);
-            if (weekday_name && strlen(weekday_name) > 0) {
-                if (config->custom_weekday_names[i]) {
-                    g_free(config->custom_weekday_names[i]);
-                }
-                config->custom_weekday_names[i] = weekday_name; // Ownership transferred
-            } else {
-                g_free(weekday_name);
+            if (config->custom_weekday_names[i]) {
+                g_free(config->custom_weekday_names[i]);
             }
+            config->custom_weekday_names[i] = weekday_name; // Ownership transferred
+        }
+    }
+    
+    // Names section - load custom full moon names
+    for (int i = 0; i < 12; i++) {
+        char key[32];
+        snprintf(key, sizeof(key), "fullmoon_%d", i + 1);
+        if (g_key_file_has_key(key_file, CONFIG_SECTION_NAMES, key, NULL)) {
+            char* fullmoon_name = g_key_file_get_string(key_file, CONFIG_SECTION_NAMES, key, NULL);
+            if (config->custom_full_moon_names[i]) {
+                g_free(config->custom_full_moon_names[i]);
+            }
+            config->custom_full_moon_names[i] = fullmoon_name; // Ownership transferred
         }
     }
     
@@ -345,6 +348,11 @@ LunarCalendarConfig* config_get_defaults(void) {
         config->custom_weekday_names[i] = NULL;
     }
     
+    // Initialize custom full moon names
+    for (int i = 0; i < 12; i++) {
+        config->custom_full_moon_names[i] = NULL;
+    }
+    
     // Advanced settings
     config->events_file_path = events_get_file_path();
     
@@ -367,39 +375,37 @@ LunarCalendarConfig* config_get_defaults(void) {
  * Free configuration structure.
  */
 void config_free(LunarCalendarConfig* config) {
-    if (config) {
-        // Free dynamically allocated strings
-        if (config->font_name) {
-            g_free(config->font_name);
+    if (!config) return;
+    
+    // Free strings
+    if (config->font_name) g_free(config->font_name);
+    if (config->events_file_path) g_free(config->events_file_path);
+    if (config->cache_dir) g_free(config->cache_dir);
+    if (config->log_file_path) g_free(config->log_file_path);
+    
+    // Free custom month names
+    for (int i = 0; i < 13; i++) {
+        if (config->custom_month_names[i]) {
+            g_free(config->custom_month_names[i]);
         }
-        
-        if (config->events_file_path) {
-            g_free(config->events_file_path);
-        }
-        
-        if (config->cache_dir) {
-            g_free(config->cache_dir);
-        }
-        
-        if (config->log_file_path) {
-            g_free(config->log_file_path);
-        }
-        
-        // Free custom names
-        for (int i = 0; i < 13; i++) {
-            if (config->custom_month_names[i]) {
-                g_free(config->custom_month_names[i]);
-            }
-        }
-        
-        for (int i = 0; i < 7; i++) {
-            if (config->custom_weekday_names[i]) {
-                g_free(config->custom_weekday_names[i]);
-            }
-        }
-        
-        free(config);
     }
+    
+    // Free custom weekday names
+    for (int i = 0; i < 7; i++) {
+        if (config->custom_weekday_names[i]) {
+            g_free(config->custom_weekday_names[i]);
+        }
+    }
+    
+    // Free custom full moon names
+    for (int i = 0; i < 12; i++) {
+        if (config->custom_full_moon_names[i]) {
+            g_free(config->custom_full_moon_names[i]);
+        }
+    }
+    
+    // Free the config struct
+    g_free(config);
 }
 
 /**
@@ -457,7 +463,7 @@ bool config_save(const char* filename, LunarCalendarConfig* config) {
     // Names section - save custom month names
     for (int i = 0; i < 13; i++) {
         char key[32];
-        snprintf(key, sizeof(key), "month_%d_name", i + 1);
+        snprintf(key, sizeof(key), "month_%d", i + 1);
         if (config->custom_month_names[i] && strlen(config->custom_month_names[i]) > 0) {
             g_key_file_set_string(key_file, CONFIG_SECTION_NAMES, key, config->custom_month_names[i]);
         }
@@ -466,9 +472,18 @@ bool config_save(const char* filename, LunarCalendarConfig* config) {
     // Names section - save custom weekday names
     for (int i = 0; i < 7; i++) {
         char key[32];
-        snprintf(key, sizeof(key), "weekday_%d_name", i + 1);
+        snprintf(key, sizeof(key), "weekday_%d", i);
         if (config->custom_weekday_names[i] && strlen(config->custom_weekday_names[i]) > 0) {
             g_key_file_set_string(key_file, CONFIG_SECTION_NAMES, key, config->custom_weekday_names[i]);
+        }
+    }
+    
+    // Save custom full moon names
+    for (int i = 0; i < 12; i++) {
+        char key[32];
+        snprintf(key, sizeof(key), "fullmoon_%d", i + 1);
+        if (config->custom_full_moon_names[i] && strlen(config->custom_full_moon_names[i]) > 0) {
+            g_key_file_set_string(key_file, CONFIG_SECTION_NAMES, key, config->custom_full_moon_names[i]);
         }
     }
     

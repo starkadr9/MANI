@@ -7,6 +7,7 @@
 #include "../../include/gui/calendar_adapter.h"
 #include "../../include/lunar_calendar.h"
 #include "../../include/lunar_renderer.h"
+#include "../../include/gui/gui_app.h"
 
 // Define M_PI if not available
 #ifndef M_PI
@@ -331,12 +332,39 @@ CalendarDayCell* calendar_adapter_get_germanic_day_info(int year, int month, int
 
 // Get the name for a moon phase
 const char* calendar_adapter_get_moon_phase_name(MoonPhase phase) {
+    // Get the application instance to access config
+    LunarCalendarApp* app = g_object_get_data(G_OBJECT(g_application_get_default()), "app_data");
+    
+    // When showing full moon and we have custom names
+    if (phase == FULL_MOON && app && app->config) {
+        // Determine which month's full moon we're displaying
+        time_t now;
+        time(&now);
+        struct tm* tm_now = localtime(&now);
+        int current_month = tm_now->tm_mon; // 0-based month (0=Jan, 11=Dec)
+        
+        // If we have a custom name for this month's full moon, use it
+        if (app->config->custom_full_moon_names[current_month] && 
+            strlen(app->config->custom_full_moon_names[current_month]) > 0) {
+            return app->config->custom_full_moon_names[current_month];
+        }
+        
+        // Otherwise, return the default full moon name
+        const char* default_moon_names[] = {
+            "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon",
+            "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
+            "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon"
+        };
+        return default_moon_names[current_month];
+    }
+    
+    // For other moon phases, return standard name
     switch (phase) {
         case NEW_MOON: return "New Moon";
         case WAXING_CRESCENT: return "Waxing Crescent";
         case FIRST_QUARTER: return "First Quarter";
         case WAXING_GIBBOUS: return "Waxing Gibbous";
-        case FULL_MOON: return "Full Moon";
+        case FULL_MOON: return "Full Moon"; // Fallback if customization failed
         case WANING_GIBBOUS: return "Waning Gibbous";
         case LAST_QUARTER: return "Last Quarter";
         case WANING_CRESCENT: return "Waning Crescent";

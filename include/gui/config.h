@@ -61,6 +61,7 @@ typedef struct {
     // Names section
     char* custom_month_names[13];
     char* custom_weekday_names[7];
+    char* custom_full_moon_names[12]; // Custom names for full moons (one per month)
     
     // Advanced section
     double ui_scale;

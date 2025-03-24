@@ -540,10 +540,24 @@ static void update_calendar_view(LunarCalendarApp* app) {
         "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon", "Blue Moon"
     };
     
+    // Get the current month number (1-based) in the Gregorian calendar
+    int current_gregorian_month = month_start.month;
+    
+    // Default moon name from the array
+    const char* header_moon_name = month_descriptions[(app->current_month - 1) % 13];
+    
+    // Use custom full moon name if available for the current month
+    if (app->config && 
+        current_gregorian_month >= 1 && current_gregorian_month <= 12 && 
+        app->config->custom_full_moon_names[current_gregorian_month - 1] && 
+        strlen(app->config->custom_full_moon_names[current_gregorian_month - 1]) > 0) {
+        header_moon_name = app->config->custom_full_moon_names[current_gregorian_month - 1];
+    }
+    
     // Use the Germanic lunar month name with the Gregorian reference date
     snprintf(header, sizeof(header), "Lunar Month %d (%s) - %d",
             app->current_month, 
-            month_descriptions[(app->current_month - 1) % 13],
+            header_moon_name,
             app->current_year);
     gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), header);
     
@@ -592,10 +606,20 @@ static void update_calendar_view(LunarCalendarApp* app) {
     
     // Push a status message to indicate the calendar type
     char status_msg[256];
+    const char* status_moon_name = month_descriptions[(app->current_month - 1) % 13];
+
+    // Use custom full moon name if available for the current month
+    if (app->config && 
+        month_start.month >= 1 && month_start.month <= 12 && 
+        app->config->custom_full_moon_names[month_start.month - 1] && 
+        strlen(app->config->custom_full_moon_names[month_start.month - 1]) > 0) {
+        status_moon_name = app->config->custom_full_moon_names[month_start.month - 1];
+    }
+
     snprintf(status_msg, sizeof(status_msg), 
              "Ready - Displaying Germanic lunar month %d (%s) - Full Moon: %04d-%02d-%02d",
              app->current_month, 
-             month_descriptions[(app->current_month - 1) % 13],
+             status_moon_name,
              month_start.year, month_start.month, month_start.day);
     gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, status_msg);
     
@@ -659,14 +683,17 @@ static void update_calendar_view(LunarCalendarApp* app) {
         int greg_month = current_date_in_month.month;
         int greg_day = current_date_in_month.day;
         
-        // Show Gregorian date for reference
-        char greg_str[32];
-        snprintf(greg_str, sizeof(greg_str), "%04d-%02d-%02d", 
-                 greg_year, greg_month, greg_day);
-        
-        GtkWidget* greg_date = gtk_label_new(greg_str);
-        gtk_widget_set_halign(greg_date, GTK_ALIGN_START);
-        gtk_box_pack_start(GTK_BOX(day_box), greg_date, FALSE, FALSE, 0);
+        // Show Gregorian date for reference only if enabled in settings
+        GtkWidget* greg_date = NULL;
+        if (app->config && app->config->show_gregorian_dates) {
+            char greg_str[32];
+            snprintf(greg_str, sizeof(greg_str), "%04d-%02d-%02d", 
+                     greg_year, greg_month, greg_day);
+            
+            greg_date = gtk_label_new(greg_str);
+            gtk_widget_set_halign(greg_date, GTK_ALIGN_START);
+            gtk_box_pack_start(GTK_BOX(day_box), greg_date, FALSE, FALSE, 0);
+        }
         
         // Get full day info for special day highlighting and moon phase
         CalendarDayCell* day_cell = calendar_adapter_get_germanic_day_info(
@@ -722,7 +749,9 @@ static void update_calendar_view(LunarCalendarApp* app) {
             
             // Make the text lighter
             gtk_widget_set_opacity(day_number, 0.5);
-            gtk_widget_set_opacity(greg_date, 0.5);
+            if (greg_date) {
+                gtk_widget_set_opacity(greg_date, 0.5);
+            }
             gtk_widget_set_opacity(moon_phase, 0.5);
             
             // Add a subtle border
@@ -1449,8 +1478,29 @@ static void update_month_label(LunarCalendarApp* app) {
             month_name = app->config->custom_month_names[app->current_month - 1];
         }
         
-        snprintf(month_text, sizeof(month_text), "Month %d: %s", 
-                 app->current_month, month_name);
+        // Full moon names
+        const char* full_moon_names[] = {
+            "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon", 
+            "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
+            "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon"
+        };
+        
+        // Get current month of year for the full moon name
+        time_t now;
+        time(&now);
+        struct tm* tm_now = localtime(&now);
+        int month_idx = tm_now->tm_mon; // 0-based month (0=Jan)
+        
+        // Use custom full moon name if available
+        const char* moon_name = full_moon_names[month_idx % 12];
+        if (app->config && 
+            app->config->custom_full_moon_names[month_idx] && 
+            strlen(app->config->custom_full_moon_names[month_idx]) > 0) {
+            moon_name = app->config->custom_full_moon_names[month_idx];
+        }
+        
+        snprintf(month_text, sizeof(month_text), "Month %d: %s (%s)", 
+                 app->current_month, month_name, moon_name);
         
         gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), month_text);
     }
@@ -1610,6 +1660,9 @@ static void on_metonic_help_clicked(GtkButton* button, gpointer user_data) {
 static void update_ui_from_config(LunarCalendarApp* app) {
     if (!app) return;
     
+    // Print debug info to confirm this is being called
+    g_print("Applying settings changes...\n");
+    
     // Update theme based on settings
     GtkSettings* settings = gtk_settings_get_default();
     if (settings) {
@@ -1674,7 +1727,7 @@ static void update_ui_from_config(LunarCalendarApp* app) {
         }
     }
     
-    // Update calendar view
+    // Clear and rebuild calendar view to reflect new settings
     update_calendar_view(app);
     
     // Update month label (to show custom month names)
@@ -1691,6 +1744,12 @@ static void update_ui_from_config(LunarCalendarApp* app) {
     // Redraw the entire window to reflect changes
     if (app->window) {
         gtk_widget_queue_draw(app->window);
+    }
+    
+    // Show a status message to confirm changes were applied
+    if (app->status_bar) {
+        gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, 
+                       "Settings have been applied successfully.");
     }
 }
 

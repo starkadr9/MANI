@@ -28,6 +28,7 @@ typedef struct {
     // Names widgets
     GtkWidget* month_name_entries[13]; // 1-12 months + header
     GtkWidget* weekday_name_entries[8]; // 0-6 days + header
+    GtkWidget* full_moon_name_entries[12]; // Names for full moons, one per month
     
     // Advanced widgets
     GtkWidget* events_file_path_entry;
@@ -41,6 +42,7 @@ static GtkWidget* create_appearance_tab(LunarCalendarApp* app, SettingsWidgets* 
 static GtkWidget* create_display_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 static GtkWidget* create_names_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 static GtkWidget* create_advanced_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
+static GtkWidget* create_moon_names_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 
 // Forward declaration for settings application
 static void apply_settings(LunarCalendarApp* app);
@@ -54,6 +56,7 @@ static void on_clear_cache(GtkButton* button, gpointer user_data);
 static void on_reset_all_settings(GtkButton* button, gpointer user_data);
 static void on_reset_month_name(GtkButton* button, gpointer user_data);
 static void on_reset_weekday_name(GtkButton* button, gpointer user_data);
+static void on_reset_moon_name(GtkButton* button, gpointer user_data);
 static void on_browse_events_file(GtkButton* button, gpointer user_data);
 static void on_browse_cache_dir(GtkButton* button, gpointer user_data);
 static void on_browse_log_file(GtkButton* button, gpointer user_data);
@@ -76,6 +79,8 @@ static void update_ui_from_config(LunarCalendarApp* app) {
     if (app->header_bar) {
         gtk_widget_queue_draw(app->header_bar);
     }
+    
+    // External UI update functions are called from gui_main.c after apply_settings
 }
 
 /**
@@ -107,9 +112,10 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent) {
     gtk_box_pack_start(GTK_BOX(content_area), notebook, TRUE, TRUE, 0);
     
     // Create tabs
-    GtkWidget* appearance_tab = create_appearance_tab(app, widgets);
-    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), appearance_tab, 
-                            gtk_label_new("Appearance"));
+    // GtkWidget* appearance_tab = create_appearance_tab(app, widgets);
+    // Not showing appearance tab since it doesn't work properly
+    // gtk_notebook_append_page(GTK_NOTEBOOK(notebook), appearance_tab, 
+    //                        gtk_label_new("Appearance"));
     
     GtkWidget* display_tab = create_display_tab(app, widgets);
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), display_tab, 
@@ -118,6 +124,11 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent) {
     GtkWidget* names_tab = create_names_tab(app, widgets);
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), names_tab, 
                             gtk_label_new("Month Names"));
+    
+    // Add the Moon Names tab
+    GtkWidget* moon_names_tab = create_moon_names_tab(app, widgets);
+    gtk_notebook_append_page(GTK_NOTEBOOK(notebook), moon_names_tab,
+                            gtk_label_new("Moon Names"));
     
     GtkWidget* advanced_tab = create_advanced_tab(app, widgets);
     gtk_notebook_append_page(GTK_NOTEBOOK(notebook), advanced_tab, 
@@ -155,13 +166,40 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent) {
         apply_settings(app);
         settings_changed = TRUE;
         
+        // Debug output to confirm changes were applied
+        g_print("Settings dialog: changes applied\n");
+        
         if (response == GTK_RESPONSE_OK) {
             break;
         }
         
-        // For APPLY, also update the UI to reflect the changes immediately
+        // For APPLY, make sure we update the UI immediately and show a notification
         if (response == GTK_RESPONSE_APPLY) {
+            // Double-check we're really updating the UI
+            // These functions need to be called from gui_main.c
+            // update_calendar_view(app);
+            // update_month_label(app);
+            
+            if (app->status_bar) {
+                gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, 
+                               "Settings have been applied.");
+            }
+            
+            // Save configuration to file before updating UI
+            if (app->config_file_path) {
+                config_save(app->config_file_path, app->config);
+            }
+            
+            // Call the main UI update function
             update_ui_from_config(app);
+            
+            // Force immediate GUI update by processing pending events
+            // Process pending events with DO_NOT_BLOCK to force immediate updates
+            while (gtk_events_pending())
+                gtk_main_iteration_do(FALSE);  // FALSE = don't block
+            
+            // Print debug confirmation
+            g_print("Settings applied and UI updated via Apply button\n");
         }
     }
     
@@ -577,6 +615,109 @@ static GtkWidget* create_names_tab(LunarCalendarApp* app, SettingsWidgets* widge
     return grid;
 }
 
+// Moon Names tab creation
+static GtkWidget* create_moon_names_tab(LunarCalendarApp* app, SettingsWidgets* widgets) {
+    GtkWidget* grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
+    gtk_widget_set_margin_start(grid, 10);
+    gtk_widget_set_margin_end(grid, 10);
+    gtk_widget_set_margin_top(grid, 10);
+    gtk_widget_set_margin_bottom(grid, 10);
+    
+    // Create a scrolled window to contain everything
+    GtkWidget* scrolled = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
+                                  GTK_POLICY_NEVER,
+                                  GTK_POLICY_AUTOMATIC);
+    gtk_container_add(GTK_CONTAINER(grid), scrolled);
+    
+    // Make the scrolled window expand to fill available space
+    gtk_widget_set_hexpand(scrolled, TRUE);
+    gtk_widget_set_vexpand(scrolled, TRUE);
+    
+    // Create a vertical box for the content
+    GtkWidget* content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    gtk_container_add(GTK_CONTAINER(scrolled), content_box);
+    
+    // Add a description label
+    GtkWidget* description = gtk_label_new(
+        "Customize the names of the full moons for each month of the year.\n"
+        "These names will be displayed when viewing full moons in the calendar.");
+    gtk_widget_set_halign(description, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(content_box), description, FALSE, FALSE, 0);
+    
+    // Full moon names section with a frame
+    GtkWidget* moon_frame = gtk_frame_new("Full Moon Names");
+    gtk_box_pack_start(GTK_BOX(content_box), moon_frame, FALSE, FALSE, 0);
+    
+    GtkWidget* moon_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(moon_grid), 5);
+    gtk_grid_set_column_spacing(GTK_GRID(moon_grid), 10);
+    gtk_widget_set_margin_start(moon_grid, 10);
+    gtk_widget_set_margin_end(moon_grid, 10);
+    gtk_widget_set_margin_top(moon_grid, 10);
+    gtk_widget_set_margin_bottom(moon_grid, 10);
+    gtk_container_add(GTK_CONTAINER(moon_frame), moon_grid);
+    
+    // Column headers
+    gtk_grid_attach(GTK_GRID(moon_grid), gtk_label_new("Month"), 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(moon_grid), gtk_label_new("Default Name"), 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(moon_grid), gtk_label_new("Custom Name"), 2, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(moon_grid), gtk_label_new("Reset"), 3, 0, 1, 1);
+    
+    // Default full moon names
+    const char* default_moon_names[] = {
+        "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon",
+        "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
+        "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon"
+    };
+    
+    // Month names for display
+    const char* month_names[] = {
+        "January", "February", "March", "April",
+        "May", "June", "July", "August",
+        "September", "October", "November", "December"
+    };
+    
+    // Create entries for moon names
+    for (int i = 0; i < 12; i++) {
+        // Month name
+        GtkWidget* month = gtk_label_new(month_names[i]);
+        gtk_widget_set_halign(month, GTK_ALIGN_START);
+        gtk_grid_attach(GTK_GRID(moon_grid), month, 0, i + 1, 1, 1);
+        
+        // Default name
+        GtkWidget* default_name = gtk_label_new(default_moon_names[i]);
+        gtk_widget_set_halign(default_name, GTK_ALIGN_START);
+        gtk_grid_attach(GTK_GRID(moon_grid), default_name, 1, i + 1, 1, 1);
+        
+        // Custom name entry
+        widgets->full_moon_name_entries[i] = gtk_entry_new();
+        if (app->config->custom_full_moon_names[i]) {
+            gtk_entry_set_text(GTK_ENTRY(widgets->full_moon_name_entries[i]), 
+                             app->config->custom_full_moon_names[i]);
+        } else {
+            gtk_entry_set_placeholder_text(GTK_ENTRY(widgets->full_moon_name_entries[i]), 
+                                        default_moon_names[i]);
+        }
+        gtk_grid_attach(GTK_GRID(moon_grid), widgets->full_moon_name_entries[i], 2, i + 1, 1, 1);
+        
+        // Store the widget for later access
+        char widget_name[32];
+        snprintf(widget_name, sizeof(widget_name), "moon_entry_%d", i + 1);
+        store_widget_pointer(app, widget_name, widgets->full_moon_name_entries[i]);
+        
+        // Reset button
+        GtkWidget* reset_btn = gtk_button_new_with_label("Reset");
+        gtk_widget_set_name(reset_btn, g_strdup_printf("%d", i + 1));
+        gtk_grid_attach(GTK_GRID(moon_grid), reset_btn, 3, i + 1, 1, 1);
+        g_signal_connect(reset_btn, "clicked", G_CALLBACK(on_reset_moon_name), widgets->full_moon_name_entries[i]);
+    }
+    
+    return grid;
+}
+
 // Advanced tab creation
 static GtkWidget* create_advanced_tab(LunarCalendarApp* app, SettingsWidgets* widgets) {
     GtkWidget* grid = gtk_grid_new();
@@ -690,6 +831,15 @@ static GtkWidget* create_advanced_tab(LunarCalendarApp* app, SettingsWidgets* wi
 
 // Reset month name callback
 static void on_reset_month_name(GtkButton* button, gpointer user_data) {
+    GtkWidget* entry = GTK_WIDGET(user_data);
+    if (!entry) return;
+    
+    // Clear the entry text
+    gtk_entry_set_text(GTK_ENTRY(entry), "");
+}
+
+// Reset moon name callback
+static void on_reset_moon_name(GtkButton* button, gpointer user_data) {
     GtkWidget* entry = GTK_WIDGET(user_data);
     if (!entry) return;
     
@@ -995,6 +1145,26 @@ static void apply_settings(LunarCalendarApp* app) {
             } else if (app->config->custom_weekday_names[i]) {
                 g_free(app->config->custom_weekday_names[i]);
                 app->config->custom_weekday_names[i] = NULL;
+            }
+        }
+    }
+    
+    // Save custom full moon names
+    for (int i = 0; i < 12; i++) {
+        GtkWidget* entry = g_object_get_data(G_OBJECT(app->window), g_strdup_printf("moon_entry_%d", i + 1));
+        if (entry) {
+            const char* text = gtk_entry_get_text(GTK_ENTRY(entry));
+            if (text && strlen(text) > 0) {
+                if (app->config->custom_full_moon_names[i]) {
+                    g_free(app->config->custom_full_moon_names[i]);
+                }
+                app->config->custom_full_moon_names[i] = g_strdup(text);
+                
+                // Debug output to verify moon names are being saved
+                g_print("Saved custom moon name for month %d: '%s'\n", i + 1, text);
+            } else if (app->config->custom_full_moon_names[i]) {
+                g_free(app->config->custom_full_moon_names[i]);
+                app->config->custom_full_moon_names[i] = NULL;
             }
         }
     }

@@ -89,6 +89,12 @@ GdkPixbuf* create_moon_phase_icon(MoonPhase phase, int size);
 /* Get the moon phase icon for a day */
 GdkPixbuf* get_moon_phase_icon(LunarDay lunar_day, int size);
 
+// Function to check if a year is a lunar leap year with 13 months
+int calendar_adapter_is_lunar_leap_year(int year);
+
+// Get the number of months in a lunar year
+int calendar_adapter_get_months_in_year(int year);
+
 /* These functions are already declared in lunar_renderer.h - don't redeclare with different signatures */
 /* SpecialDayType get_special_day_type(int year, int month, int day); */
 /* const char* format_special_day(SpecialDayType type); */

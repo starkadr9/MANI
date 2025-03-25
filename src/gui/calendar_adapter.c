@@ -674,6 +674,16 @@ static const char* MONTH_NAMES[] = {
     "July", "August", "September", "October", "November", "December", "Thirteenth"
 };
 
+// Function to check if a year is a lunar leap year with 13 months
+int calendar_adapter_is_lunar_leap_year(int year) {
+    return count_lunar_months_in_year(year) == 13;
+}
+
+// Get the number of months in a lunar year
+int calendar_adapter_get_months_in_year(int year) {
+    return count_lunar_months_in_year(year);
+}
+
 // Create a calendar model for a specific month/year
 CalendarGridModel* calendar_adapter_create_month_model(int year, int month) {
     CalendarGridModel* model = g_malloc0(sizeof(CalendarGridModel));
@@ -697,6 +707,14 @@ CalendarGridModel* calendar_adapter_create_month_model(int year, int month) {
         model->days_in_month = 30;
     } else if (month == 2) {
         model->days_in_month = is_gregorian_leap_year(year) ? 29 : 28;
+    } else if (month == 13) {
+        // For the 13th month in a lunar leap year
+        model->days_in_month = 30; // Default to 30 days
+        
+        // Sanity check to ensure this is actually a leap year
+        if (!calendar_adapter_is_lunar_leap_year(year)) {
+            model->days_in_month = 0; // Invalid month
+        }
     }
     
     // Set up the grid dimensions
@@ -735,7 +753,12 @@ CalendarGridModel* calendar_adapter_create_month_model(int year, int month) {
     }
     
     // Set month and year strings
-    model->month_name = g_strdup(MONTH_NAMES[month - 1]);
+    // For the 13th month, use a special name
+    if (month == 13) {
+        model->month_name = g_strdup("Thirteenth Month");
+    } else {
+        model->month_name = g_strdup(MONTH_NAMES[month - 1]);
+    }
     model->year_str = g_strdup_printf("%d", year);
     
     return model;

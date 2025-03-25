@@ -895,8 +895,10 @@ static void on_prev_month(GtkWidget* widget, gpointer data) {
     /* Go to previous month */
     app->current_month--;
     if (app->current_month < 1) {
-        app->current_month = 12;
         app->current_year--;
+        /* Check if previous year is a leap year with 13 months */
+        int month_count = count_lunar_months_in_year(app->current_year);
+        app->current_month = (month_count == 13) ? 13 : 12;
     }
     
     /* Update display */
@@ -907,9 +909,12 @@ static void on_prev_month(GtkWidget* widget, gpointer data) {
 static void on_next_month(GtkWidget* widget, gpointer data) {
     LunarCalendarApp* app = (LunarCalendarApp*)data;
     
+    /* Check if current year is a leap year with 13 months */
+    int month_count = count_lunar_months_in_year(app->current_year);
+    
     /* Go to next month */
     app->current_month++;
-    if (app->current_month > 12) {
+    if (app->current_month > month_count) {
         app->current_month = 1;
         app->current_year++;
     }
@@ -1478,29 +1483,31 @@ static void update_month_label(LunarCalendarApp* app) {
             month_name = app->config->custom_month_names[app->current_month - 1];
         }
         
-        // Full moon names
+        // Add the month count and check if this is a 13-month year
+        int month_count = count_lunar_months_in_year(app->current_year);
+        char year_info[50];
+        sprintf(year_info, "(%d-Month Year)", month_count);
+        
+        // Full moon names for the 12 regular months
         const char* full_moon_names[] = {
             "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon", 
             "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
-            "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon"
+            "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon", 
+            "Blue Moon" // Name for the 13th month
         };
         
-        // Get current month of year for the full moon name
-        time_t now;
-        time(&now);
-        struct tm* tm_now = localtime(&now);
-        int month_idx = tm_now->tm_mon; // 0-based month (0=Jan)
+        // Use appropriate name for the full moon
+        const char* moon_name = full_moon_names[app->current_month - 1];
         
-        // Use custom full moon name if available
-        const char* moon_name = full_moon_names[month_idx % 12];
-        if (app->config && 
-            app->config->custom_full_moon_names[month_idx] && 
-            strlen(app->config->custom_full_moon_names[month_idx]) > 0) {
-            moon_name = app->config->custom_full_moon_names[month_idx];
+        // Override with custom names if available
+        if (app->config && app->current_month <= 12 && 
+            app->config->custom_full_moon_names[app->current_month - 1] && 
+            strlen(app->config->custom_full_moon_names[app->current_month - 1]) > 0) {
+            moon_name = app->config->custom_full_moon_names[app->current_month - 1];
         }
         
-        snprintf(month_text, sizeof(month_text), "Month %d: %s (%s)", 
-                 app->current_month, month_name, moon_name);
+        snprintf(month_text, sizeof(month_text), "Month %d: %s (%s) %s", 
+                 app->current_month, month_name, moon_name, year_info);
         
         gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), month_text);
     }

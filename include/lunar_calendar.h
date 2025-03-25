@@ -134,6 +134,9 @@ double periodic_terms_for_solstice_equinox(double T, int season);
 /* Calculate the Germanic new year date for a given Gregorian year */
 int calculate_germanic_new_year(int year, int *month, int *day);
 
+/* Count the number of lunar months in a given year */
+int count_lunar_months_in_year(int year);
+
 /* Calculate the weekday for a given date */
 Weekday calculate_weekday(int year, int month, int day);
 

@@ -80,15 +80,26 @@ bool is_gregorian_leap_year(int year) {
 
 /* Calculate if a given lunar year is a leap year (13 months) */
 bool is_lunar_leap_year(int year) {
+    /* First check using the traditional Metonic cycle approach */
     int position_in_cycle = ((year - 1) % YEARS_PER_METONIC_CYCLE) + 1;
     
+    bool traditional_leap = false;
     for (int i = 0; i < LEAP_YEARS_COUNT; i++) {
         if (position_in_cycle == LEAP_YEARS_IN_CYCLE[i]) {
-            return true;
+            traditional_leap = true;
+            break;
         }
     }
     
-    return false;
+    /* Now use the accurate month counting approach */
+    int month_count = count_lunar_months_in_year(year);
+    
+    /* Fall back to traditional approach if month counting fails */
+    if (month_count < 12 || month_count > 13) {
+        return traditional_leap;
+    }
+    
+    return month_count == 13;
 }
 
 /* Calculate the weekday for a given date */
@@ -499,8 +510,10 @@ double periodic_terms_for_solstice_equinox(double T, int season) {
 }
 
 /*
- * Calculate the Germanic New Year for a given year
- * This is the first full moon after the first new moon after the winter solstice
+ * Calculate the Germanic New Year for a given year using accurate astronomical rules:
+ * - If a new moon occurs after winter solstice, it's a 12 month year, and the next full moon starts the next year
+ * - If a full moon occurs after winter solstice (without a new moon between), it's a 13 month year,
+ *   the 13th month starts on that full moon, and the next full moon is the new year
  */
 int calculate_germanic_new_year(int year, int *month, int *day) {
     /* Find the winter solstice of the previous year */
@@ -513,12 +526,13 @@ int calculate_germanic_new_year(int year, int *month, int *day) {
     /* Convert the winter solstice to Julian days for comparison */
     double ws_jd = gregorian_to_julian_day(prev_year, ws_month, ws_day, 12.0);
     
-    /* Use a more robust day-by-day search method starting from winter solstice */
+    /* Find the next full moon and new moon after winter solstice */
     double search_jd = ws_jd;
-    double new_moon_jd = 0;
+    double first_full_moon_jd = 0;
+    double first_new_moon_jd = 0;
     
-    /* Search for up to 45 days to find the first new moon after winter solstice */
-    for (int i = 0; i < 45; i++) {
+    /* Search for up to 45 days to find the first new moon and full moon after winter solstice */
+    for (int i = 0; i < 45 && (first_full_moon_jd == 0 || first_new_moon_jd == 0); i++) {
         int search_year, search_month, search_day;
         double search_hour;
         
@@ -528,47 +542,165 @@ int calculate_germanic_new_year(int year, int *month, int *day) {
         /* Get the moon phase for this day */
         MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
         
-        /* If we found a new moon, record it and stop searching */
-        if (phase == NEW_MOON) {
-            new_moon_jd = search_jd;
-            break;
+        /* Record the first full moon and new moon we find */
+        if (phase == FULL_MOON && first_full_moon_jd == 0) {
+            first_full_moon_jd = search_jd;
+        }
+        
+        if (phase == NEW_MOON && first_new_moon_jd == 0) {
+            first_new_moon_jd = search_jd;
         }
         
         /* Move to the next day */
         search_jd += 1.0;
     }
     
-    /* If we didn't find a new moon, return failure */
-    if (new_moon_jd == 0) {
-        return 0;
-    }
+    /* Apply Germanic rules to determine the new year date */
+    double new_year_jd;
     
-    /* Now search for the first full moon after the new moon */
-    search_jd = new_moon_jd + 1.0; /* Start from the day after new moon */
-    
-    /* Search for up to 30 days (one lunar month) to find the next full moon */
-    for (int i = 0; i < 30; i++) {
-        int search_year, search_month, search_day;
-        double search_hour;
+    if (first_new_moon_jd < first_full_moon_jd) {
+        /* If new moon comes before full moon after solstice, it's a 12-month year */
+        /* New year starts with the full moon after the new moon */
+        new_year_jd = first_full_moon_jd;
+    } else {
+        /* If full moon comes before new moon after solstice, it's a 13-month year */
+        /* The 13th month starts with this full moon, and next full moon is new year */
+        double second_full_moon_jd = first_full_moon_jd + 27.0; // Approximately a lunar month
         
-        /* Convert Julian day to Gregorian date */
-        julian_day_to_gregorian(search_jd, &search_year, &search_month, &search_day, &search_hour);
-        
-        /* Get the moon phase for this day */
-        MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
-        
-        /* If we found a full moon, that's our Germanic New Year */
-        if (phase == FULL_MOON) {
-            *month = search_month;
-            *day = search_day;
-            return 1; /* Success */
+        /* Search for the next full moon */
+        while (true) {
+            int search_year, search_month, search_day;
+            double search_hour;
+            
+            julian_day_to_gregorian(second_full_moon_jd, &search_year, &search_month, &search_day, &search_hour);
+            MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
+            
+            if (phase == FULL_MOON) {
+                break; // Found the next full moon
+            }
+            
+            second_full_moon_jd += 1.0;
+            
+            /* Safety check to prevent infinite loop */
+            if (second_full_moon_jd > first_full_moon_jd + 35.0) {
+                /* If we can't find the next full moon, fall back to the simple rule */
+                second_full_moon_jd = first_full_moon_jd + 29.53058867;
+                break;
+            }
         }
         
-        /* Move to the next day */
-        search_jd += 1.0;
+        new_year_jd = second_full_moon_jd;
     }
     
-    return 0;
+    /* Convert the Julian day back to a Gregorian date */
+    int new_year_year;
+    double new_year_hour;
+    julian_day_to_gregorian(new_year_jd, &new_year_year, month, day, &new_year_hour);
+    
+    /* Ensure we got the correct year */
+    if (new_year_year != year) {
+        /* If the date is before December, try with the winter solstice from current year */
+        if (new_year_year < year && *month < 12) {
+            /* Try with the winter solstice of the requested year */
+            if (!calculate_winter_solstice(year, &ws_month, &ws_day)) {
+                return 0; /* Failed to calculate winter solstice */
+            }
+            
+            double ws_jd = gregorian_to_julian_day(year, ws_month, ws_day, 12.0);
+            
+            double next_full_moon_jd = ws_jd;
+            double next_new_moon_jd = ws_jd;
+            
+            /* Find next full moon and new moon after solstice */
+            for (int i = 0; i < 45 && (next_full_moon_jd == ws_jd || next_new_moon_jd == ws_jd); i++) {
+                int search_year, search_month, search_day;
+                double search_hour;
+                
+                next_full_moon_jd += 1.0;
+                next_new_moon_jd += 1.0;
+                
+                julian_day_to_gregorian(next_full_moon_jd, &search_year, &search_month, &search_day, &search_hour);
+                MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
+                if (phase != FULL_MOON) {
+                    next_full_moon_jd = ws_jd;
+                }
+                
+                julian_day_to_gregorian(next_new_moon_jd, &search_year, &search_month, &search_day, &search_hour);
+                phase = calculate_moon_phase(search_year, search_month, search_day);
+                if (phase != NEW_MOON) {
+                    next_new_moon_jd = ws_jd;
+                }
+            }
+            
+            if (next_full_moon_jd != ws_jd && next_new_moon_jd != ws_jd) {
+                /* Apply Germanic rule again */
+                if (next_full_moon_jd < next_new_moon_jd) {
+                    double second_full_moon_jd = next_full_moon_jd + 27.0;
+                    
+                    /* Find the second full moon */
+                    while (true) {
+                        int search_year, search_month, search_day;
+                        double search_hour;
+                        
+                        julian_day_to_gregorian(second_full_moon_jd, &search_year, &search_month, &search_day, &search_hour);
+                        MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
+                        
+                        if (phase == FULL_MOON) {
+                            break; // Found the next full moon
+                        }
+                        
+                        second_full_moon_jd += 1.0;
+                        
+                        /* Safety check */
+                        if (second_full_moon_jd > next_full_moon_jd + 35.0) {
+                            second_full_moon_jd = next_full_moon_jd + 29.53058867;
+                            break;
+                        }
+                    }
+                    
+                    new_year_jd = second_full_moon_jd;
+                } else {
+                    double full_moon_after_new_moon_jd = next_new_moon_jd + 10.0;
+                    
+                    /* Find the full moon after new moon */
+                    while (true) {
+                        int search_year, search_month, search_day;
+                        double search_hour;
+                        
+                        julian_day_to_gregorian(full_moon_after_new_moon_jd, &search_year, &search_month, &search_day, &search_hour);
+                        MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
+                        
+                        if (phase == FULL_MOON) {
+                            break; // Found the full moon after new moon
+                        }
+                        
+                        full_moon_after_new_moon_jd += 1.0;
+                        
+                        /* Safety check */
+                        if (full_moon_after_new_moon_jd > next_new_moon_jd + 35.0) {
+                            full_moon_after_new_moon_jd = next_new_moon_jd + 14.77;
+                            break;
+                        }
+                    }
+                    
+                    new_year_jd = full_moon_after_new_moon_jd;
+                }
+                
+                julian_day_to_gregorian(new_year_jd, &new_year_year, month, day, &new_year_hour);
+                
+                if (new_year_year == year) {
+                    return 1;
+                }
+            }
+        }
+        
+        /* If the date is from next year, use a previous solstice */
+        if (new_year_year > year) {
+            return calculate_germanic_new_year(year - 1, month, day);
+        }
+    }
+    
+    return 1; /* Success */
 }
 
 /* Calculate the Germanic Eld year from a Gregorian year */
@@ -815,4 +947,62 @@ MetonicCycle initialize_metonic_cycle(int start_year) {
     }
     
     return cycle;
+}
+
+/* Count number of months in a lunar year based on astronomical rules */
+int count_lunar_months_in_year(int year) {
+    int gnm_start, gnd_start;
+    int gnm_next, gnd_next;
+    
+    /* Find the Germanic New Year dates for this and next year */
+    if (!calculate_germanic_new_year(year, &gnm_start, &gnd_start) ||
+        !calculate_germanic_new_year(year + 1, &gnm_next, &gnd_next)) {
+        /* Fall back to traditional method if calculation fails */
+        int position_in_cycle = ((year - 1) % YEARS_PER_METONIC_CYCLE) + 1;
+        for (int i = 0; i < LEAP_YEARS_COUNT; i++) {
+            if (position_in_cycle == LEAP_YEARS_IN_CYCLE[i]) {
+                return 13;
+            }
+        }
+        return 12;
+    }
+    
+    /* Convert to Julian days */
+    double year_begin_jd = gregorian_to_julian_day(year, gnm_start, gnd_start, 12.0);
+    double next_year_begin_jd = gregorian_to_julian_day(year + 1, gnm_next, gnd_next, 12.0);
+    
+    /* Count full moons between these dates */
+    int month_count = 0;
+    double current_day = year_begin_jd + 5.0; /* Start a few days after year start */
+    
+    while (current_day < next_year_begin_jd) {
+        /* Find next full moon */
+        double next_full_moon = current_day + 25.0; /* Approximate */
+        int found_full_moon = 0;
+        
+        for (int i = 0; i < 35 && !found_full_moon; i++) {
+            int search_year, search_month, search_day;
+            double search_hour;
+            
+            julian_day_to_gregorian(next_full_moon, &search_year, &search_month, &search_day, &search_hour);
+            MoonPhase phase = calculate_moon_phase(search_year, search_month, search_day);
+            
+            if (phase == FULL_MOON && next_full_moon > current_day) {
+                found_full_moon = 1;
+            } else {
+                next_full_moon += 1.0;
+            }
+        }
+        
+        if (found_full_moon && next_full_moon < next_year_begin_jd - 1.0) {
+            /* Count this full moon if it's before next year starts */
+            month_count++;
+        }
+        
+        /* Move past this full moon */
+        current_day = next_full_moon + 1.0;
+    }
+    
+    /* Add 1 for the starting month */
+    return month_count + 1;
 } 

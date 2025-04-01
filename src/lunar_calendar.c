@@ -24,8 +24,8 @@ double calculate_true_phase_jd(double k, int phase_type);
 
 // --- Julian Day Conversion ---
 
-/* 
- * Convert Gregorian date to Julian day (UT)
+/**
+ * @brief Convert Gregorian date to Julian day (UT)
  * Algorithm from Astronomical Algorithms by Jean Meeus, Chapter 7
  */
 double gregorian_to_julian_day(int year, int month, int day, double hour) {
@@ -39,14 +39,14 @@ double gregorian_to_julian_day(int year, int month, int day, double hour) {
     
     // Calculate JD at 0h UT
     double jd0h = floor(365.25 * (year + 4716)) + 
-                 floor(30.6001 * (month + 1)) + 
+                floor(30.6001 * (month + 1)) + 
                  day + b - 1524.5;
                  
     return jd0h + (hour / 24.0);
 }
 
-/* 
- * Convert Julian day (UT) to Gregorian date
+/**
+ * @brief Convert Julian day (UT) to Gregorian date
  * Algorithm from Astronomical Algorithms by Jean Meeus, Chapter 7
  */
 void julian_day_to_gregorian(double julian_day, int *year, int *month, int *day, double *hour) {
@@ -84,12 +84,16 @@ void julian_day_to_gregorian(double julian_day, int *year, int *month, int *day,
 
 // --- Gregorian Calendar Helpers ---
 
-/* Calculate if a given Gregorian year is a leap year */
+/**
+ * @brief Calculate if a given Gregorian year is a leap year
+ */
 bool is_gregorian_leap_year(int year) {
     return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
 }
 
-/* Calculate the weekday for a given Gregorian date (Zeller's congruence) */
+/**
+ * @brief Calculate the weekday for a given Gregorian date (Zeller's congruence)
+ */
 Weekday calculate_weekday(int year, int month, int day) {
     if (month < 3) {
         month += 12;
@@ -106,8 +110,8 @@ Weekday calculate_weekday(int year, int month, int day) {
 
 // --- Solstice/Equinox Calculation ---
 
-/* 
- * Calculate Julian day for solstices and equinoxes (UT)
+/**
+ * @brief Calculate Julian day for solstices and equinoxes (UT)
  * Based on Jean Meeus' Astronomical Algorithms, Chapter 27 (simplified)
  * season: 0=winter solstice (Dec), 1=spring equinox (Mar), 2=summer solstice (Jun), 3=fall equinox (Sep)
  */
@@ -136,7 +140,9 @@ double calculate_solstice_equinox_jde(int year, int season) {
     return JDE0; 
 }
 
-/* Calculate the winter solstice date for a given year */
+/**
+ * @brief Calculate the winter solstice date for a given year
+ */
 bool calculate_winter_solstice(int year, int *month, int *day) {
     double jde = calculate_solstice_equinox_jde(year, 0); 
     if (jde == 0) return false;
@@ -145,7 +151,9 @@ bool calculate_winter_solstice(int year, int *month, int *day) {
     return true;
 }
 
-/* Calculate the spring equinox date for a given year */
+/**
+ * @brief Calculate the spring equinox date for a given year
+ */
 bool calculate_spring_equinox(int year, int *month, int *day) {
     double jde = calculate_solstice_equinox_jde(year, 1); 
     if (jde == 0) return false;
@@ -154,7 +162,9 @@ bool calculate_spring_equinox(int year, int *month, int *day) {
     return true;
 }
 
-/* Calculate the summer solstice date for a given year */
+/**
+ * @brief Calculate the summer solstice date for a given year
+ */
 bool calculate_summer_solstice(int year, int *month, int *day) {
     double jde = calculate_solstice_equinox_jde(year, 2);
     if (jde == 0) return false;
@@ -163,7 +173,9 @@ bool calculate_summer_solstice(int year, int *month, int *day) {
     return true;
 }
 
-/* Calculate the fall equinox date for a given year */
+/**
+ * @brief Calculate the fall equinox date for a given year
+ */
 bool calculate_fall_equinox(int year, int *month, int *day) {
     double jde = calculate_solstice_equinox_jde(year, 3);
     if (jde == 0) return false;
@@ -175,8 +187,8 @@ bool calculate_fall_equinox(int year, int *month, int *day) {
 
 // --- Moon Phase Calculation (Based on Meeus, Chapter 49) ---
 
-/* 
- * Calculate the approximate Julian Day (UT) for the k-th phase since J2000.0
+/**
+ * @brief Calculate the approximate Julian Day (UT) for the k-th phase since J2000.0
  * phase_type: 0=NM, 1=FQ, 2=FM, 3=LQ (determines the 0.0, 0.25, 0.5, 0.75 offset)
  */
 double calculate_mean_phase_jd(double k, int phase_type) {
@@ -189,8 +201,8 @@ double calculate_mean_phase_jd(double k, int phase_type) {
     return jde;
 }
 
-/* 
- * Calculate the true Julian Day (UT) for the k-th phase, including corrections.
+/**
+ * @brief Calculate the true Julian Day (UT) for the k-th phase, including corrections.
  * phase_type: 0=NM, 1=FQ, 2=FM, 3=LQ
  */
 double calculate_true_phase_jd(double k, int phase_type) {
@@ -228,8 +240,8 @@ double calculate_true_phase_jd(double k, int phase_type) {
     return jde_mean + corrections;
 }
 
-/* 
- * Find the Julian Day (UT) of the first occurrence of a specific phase 
+/**
+ * @brief Find the Julian Day (UT) of the first occurrence of a specific phase 
  * (0=NM, 1=FQ, 2=FM, 3=LQ) *after* a given Julian Day (start_jd).
  */
 double find_next_phase_jd(double start_jd, int phase_type) {
@@ -268,7 +280,9 @@ double find_next_phase_jd(double start_jd, int phase_type) {
     return calculate_true_phase_jd(floor(k_approx) + 1.0, phase_type); 
 }
 
-/* Calculate the moon phase for a given Julian Day (UT) */
+/**
+ * @brief Calculate the moon phase for a given Julian Day (UT)
+ */
 MoonPhase calculate_moon_phase_from_jd(double jd) {
     double k_approx = (jd - 2451550.09766) / LUNAR_CYCLE_DAYS;
     double k_base = floor(k_approx);
@@ -317,7 +331,9 @@ MoonPhase calculate_moon_phase_from_jd(double jd) {
     return NEW_MOON; 
 }
 
-/* Calculate the moon phase for a given Gregorian date */
+/**
+ * @brief Calculate the moon phase for a given Gregorian date
+ */
 MoonPhase calculate_moon_phase(int year, int month, int day) {
     double jd = gregorian_to_julian_day(year, month, day, 12.0); // Use noon UT
     return calculate_moon_phase_from_jd(jd);
@@ -326,8 +342,8 @@ MoonPhase calculate_moon_phase(int year, int month, int day) {
 
 // --- Core Lunar Calendar Logic (Based on New Rules) ---
 
-/*
- * Calculate the Julian Day (UT) of the start of the specified lunar year.
+/**
+ * @brief Calculate the Julian Day (UT) of the start of the specified lunar year.
  */
 double calculate_lunar_new_year_jd(int gregorian_year_of_start) {
     int ws_year = gregorian_year_of_start - 1;
@@ -349,8 +365,8 @@ double calculate_lunar_new_year_jd(int gregorian_year_of_start) {
     return first_fm_jd;
 }
 
-/*
- * Calculate the number of lunar months in a given lunar year.
+/**
+ * @brief Calculate the number of lunar months in a given lunar year.
  */
 int get_lunar_months_in_year(int lunar_year_identifier) {
     double year_start_jd = calculate_lunar_new_year_jd(lunar_year_identifier);
@@ -380,17 +396,23 @@ int get_lunar_months_in_year(int lunar_year_identifier) {
     return full_moon_count + 1; // Add 1 for the first month
 }
 
-/* Calculate if a given lunar year is a leap year (13 months) */
+/**
+ * @brief Calculate if a given lunar year is a leap year (13 months)
+ */
 bool is_lunar_leap_year(int lunar_year_identifier) {
     return get_lunar_months_in_year(lunar_year_identifier) == 13;
 }
 
-/* Calculate the Eld Year based on the *Gregorian* year */
+/**
+ * @brief Calculate the Eld Year based on the *Gregorian* year
+ */
 int calculate_eld_year_from_gregorian(int gregorian_year) {
-     return gregorian_year + GERMANIC_EPOCH_BC;
+    return gregorian_year + GERMANIC_EPOCH_BC;
 }
 
-/* Get the position of a *Lunar Year* (identified by its Gregorian start year) within the conceptual Metonic cycle */
+/**
+ * @brief Get the position of a *Lunar Year* (identified by its Gregorian start year) within the conceptual Metonic cycle
+ */
 void get_metonic_position(int lunar_year_identifier, int *metonic_year_pos, int *metonic_cycle_num) {
     int reference_year = lunar_year_identifier; 
     int year_since_1AD = reference_year - 1;
@@ -402,8 +424,8 @@ void get_metonic_position(int lunar_year_identifier, int *metonic_year_pos, int 
 
 // --- Main Conversion Functions ---
 
-/* 
- * Convert a Gregorian date to its corresponding lunar date based on the new rules.
+/**
+ * @brief Convert a Gregorian date to its corresponding lunar date based on the new rules.
  */
 LunarDay gregorian_to_lunar(int year, int month, int day) {
     LunarDay result = {0}; 
@@ -468,8 +490,8 @@ conversion_success:
     return result;
 }
 
-/* 
- * Convert a lunar date (year, month, day based on new rules) to a Gregorian date.
+/**
+ * @brief Convert a lunar date (year, month, day based on new rules) to a Gregorian date.
  */
 bool lunar_to_gregorian(int lunar_year_id, int lunar_month, int lunar_day, 
                         int *greg_year, int *greg_month, int *greg_day) {
@@ -478,9 +500,9 @@ bool lunar_to_gregorian(int lunar_year_id, int lunar_month, int lunar_day,
     if (lunar_month < 1 || lunar_month > months_in_year || lunar_day < 1) {
         fprintf(stderr, "Error: Invalid lunar date input %d/%d/%d (year has %d months).\n", 
                 lunar_year_id, lunar_month, lunar_day, months_in_year);
-        return false; 
+        return false;
     }
-
+    
     double year_start_jd = calculate_lunar_new_year_jd(lunar_year_id);
     if (year_start_jd == 0) return false;
     
@@ -510,12 +532,14 @@ bool lunar_to_gregorian(int lunar_year_id, int lunar_month, int lunar_day,
 
     double hour_unused;
     julian_day_to_gregorian(target_jd, greg_year, greg_month, greg_day, &hour_unused);
-
+    
     return true;
 }
 
 // --- Utility Functions ---
-/* Get the lunar date for today */
+/**
+ * @brief Get the lunar date for today
+ */
 LunarDay get_today_lunar_date(void) {
     time_t now = time(NULL);
     struct tm *tm_now = localtime(&now);

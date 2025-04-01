@@ -38,33 +38,31 @@ typedef struct {
 } SettingsWidgets;
 
 // Forward declarations for tab creation functions
-static GtkWidget* create_appearance_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
+// static GtkWidget* create_appearance_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 static GtkWidget* create_display_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 static GtkWidget* create_names_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
-static GtkWidget* create_advanced_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 static GtkWidget* create_moon_names_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
+static GtkWidget* create_advanced_tab(LunarCalendarApp* app, SettingsWidgets* widgets);
 
-// Forward declaration for settings application
+// Forward declarations for callback functions
 static void apply_settings(LunarCalendarApp* app);
-
-// Forward declarations for button callbacks
 static void on_import_clicked(GtkButton* button, gpointer user_data);
 static void on_export_clicked(GtkButton* button, gpointer user_data);
 static void on_help_clicked(GtkButton* button, gpointer user_data);
-static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data);
-static void on_clear_cache(GtkButton* button, gpointer user_data);
-static void on_reset_all_settings(GtkButton* button, gpointer user_data);
 static void on_reset_month_name(GtkButton* button, gpointer user_data);
 static void on_reset_weekday_name(GtkButton* button, gpointer user_data);
 static void on_reset_moon_name(GtkButton* button, gpointer user_data);
 static void on_browse_events_file(GtkButton* button, gpointer user_data);
 static void on_browse_cache_dir(GtkButton* button, gpointer user_data);
 static void on_browse_log_file(GtkButton* button, gpointer user_data);
+static void on_clear_cache(GtkButton* button, gpointer user_data);
+static void on_reset_all_settings(GtkButton* button, gpointer user_data);
 
-// Store widget pointer in app->window for later access
+// Function to store widget pointers associated with the main app window
 static void store_widget_pointer(LunarCalendarApp* app, const char* name, GtkWidget* widget) {
-    if (!app || !app->window || !name || !widget) return;
-    g_object_set_data(G_OBJECT(app->window), name, widget);
+    if (app && app->window) {
+        g_object_set_data(G_OBJECT(app->window), name, widget);
+    }
 }
 
 /**
@@ -149,18 +147,18 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent, MainUIUp
         // 1. Apply settings to the config struct
         apply_settings(app);
         settings_changed = TRUE;
-        g_print("Settings dialog: changes applied (response: %d)\n", response);
+        // g_print("Settings dialog: changes applied (response: %d)\n", response); // DEBUG REMOVED
 
         // 2. Save the configuration immediately
         if (app->config_file_path) {
             config_save(app->config_file_path, app->config);
-            g_print("Config saved within loop.\n");
+            // g_print("Config saved within loop.\n"); // DEBUG REMOVED
         }
 
         // 3. Call the main UI update function
         if (main_update_func) {
             main_update_func(app);
-            g_print("Main UI update function called.\n");
+            // g_print("Main UI update function called.\n"); // DEBUG REMOVED
         }
 
         // 4. Force immediate GUI update by processing pending events
@@ -169,7 +167,7 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent, MainUIUp
 
         // 5. If OK, now we can break the loop
         if (response == GTK_RESPONSE_OK) {
-            g_print("Breaking loop after OK.\n");
+            // g_print("Breaking loop after OK.\n"); // DEBUG REMOVED
             break;
         }
         
@@ -179,13 +177,13 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent, MainUIUp
                 gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, 
                                "Settings have been applied.");
             }
-            g_print("Continuing loop after Apply.\n");
+            // g_print("Continuing loop after Apply.\n"); // DEBUG REMOVED
         }
     }
     
     // Save settings again if they were changed (safety net)
     if (settings_changed) {
-        g_print("Final config save after loop exit (may be redundant).\n");
+        // g_print("Final config save after loop exit (may be redundant).\n"); // DEBUG REMOVED
         config_save(app->config_file_path, app->config);
     }
     
@@ -196,126 +194,6 @@ gboolean settings_dialog_show(LunarCalendarApp* app, GtkWindow* parent, MainUIUp
     gtk_widget_destroy(dialog);
     
     return settings_changed;
-}
-
-// Appearance tab creation
-static GtkWidget* create_appearance_tab(LunarCalendarApp* app, SettingsWidgets* widgets) {
-    GtkWidget* grid = gtk_grid_new();
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
-    gtk_widget_set_margin_start(grid, 10);
-    gtk_widget_set_margin_end(grid, 10);
-    gtk_widget_set_margin_top(grid, 10);
-    gtk_widget_set_margin_bottom(grid, 10);
-    
-    int row = 0;
-    
-    // Theme selection
-    GtkWidget* theme_label = gtk_label_new("Theme:");
-    gtk_widget_set_halign(theme_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), theme_label, 0, row, 1, 1);
-    
-    widgets->theme_combo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(widgets->theme_combo), "Light");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(widgets->theme_combo), "Dark");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(widgets->theme_combo), "System Default");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(widgets->theme_combo), app->config->theme_type);
-    gtk_grid_attach(GTK_GRID(grid), widgets->theme_combo, 1, row, 2, 1);
-    
-    // Store the theme combo widget for later access
-    store_widget_pointer(app, "theme_combo", widgets->theme_combo);
-    
-    row++;
-    
-    // Primary color
-    GtkWidget* primary_color_label = gtk_label_new("Primary Color:");
-    gtk_widget_set_halign(primary_color_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), primary_color_label, 0, row, 1, 1);
-    
-    widgets->primary_color_button = gtk_color_button_new_with_rgba(&app->config->primary_color);
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(widgets->primary_color_button), TRUE);
-    gtk_grid_attach(GTK_GRID(grid), widgets->primary_color_button, 1, row, 2, 1);
-    
-    // Store the primary color button for later access
-    store_widget_pointer(app, "primary_color_button", widgets->primary_color_button);
-    
-    row++;
-    
-    // Secondary color
-    GtkWidget* secondary_color_label = gtk_label_new("Secondary Color:");
-    gtk_widget_set_halign(secondary_color_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), secondary_color_label, 0, row, 1, 1);
-    
-    widgets->secondary_color_button = gtk_color_button_new_with_rgba(&app->config->secondary_color);
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(widgets->secondary_color_button), TRUE);
-    gtk_grid_attach(GTK_GRID(grid), widgets->secondary_color_button, 1, row, 2, 1);
-    
-    // Store the secondary color button for later access
-    store_widget_pointer(app, "secondary_color_button", widgets->secondary_color_button);
-    
-    row++;
-    
-    // Text color
-    GtkWidget* text_color_label = gtk_label_new("Text Color:");
-    gtk_widget_set_halign(text_color_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), text_color_label, 0, row, 1, 1);
-    
-    widgets->text_color_button = gtk_color_button_new_with_rgba(&app->config->text_color);
-    gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(widgets->text_color_button), TRUE);
-    gtk_grid_attach(GTK_GRID(grid), widgets->text_color_button, 1, row, 2, 1);
-    
-    // Store the text color button for later access
-    store_widget_pointer(app, "text_color_button", widgets->text_color_button);
-    
-    row++;
-    
-    // Font selection
-    GtkWidget* font_label = gtk_label_new("Font:");
-    gtk_widget_set_halign(font_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), font_label, 0, row, 1, 1);
-    
-    widgets->font_button = gtk_font_button_new();
-    gtk_font_button_set_font_name(GTK_FONT_BUTTON(widgets->font_button),
-                               app->config->font_name ? app->config->font_name : "Sans 10");
-    gtk_grid_attach(GTK_GRID(grid), widgets->font_button, 1, row, 2, 1);
-    
-    // Store the font button for later access
-    store_widget_pointer(app, "font_button", widgets->font_button);
-    
-    row++;
-    
-    // Calendar cell size
-    GtkWidget* cell_size_label = gtk_label_new("Calendar Cell Size:");
-    gtk_widget_set_halign(cell_size_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), cell_size_label, 0, row, 1, 1);
-    
-    widgets->cell_size_spin = gtk_spin_button_new_with_range(60, 120, 5);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(widgets->cell_size_spin), app->config->cell_size);
-    gtk_grid_attach(GTK_GRID(grid), widgets->cell_size_spin, 1, row, 2, 1);
-    
-    // Store the cell size spinner for later access
-    store_widget_pointer(app, "cell_size_spin", widgets->cell_size_spin);
-    
-    row++;
-    
-    // Preview box
-    GtkWidget* preview_label = gtk_label_new("Preview:");
-    gtk_widget_set_halign(preview_label, GTK_ALIGN_START);
-    gtk_grid_attach(GTK_GRID(grid), preview_label, 0, row, 1, 1);
-    
-    GtkWidget* preview_frame = gtk_frame_new(NULL);
-    gtk_frame_set_shadow_type(GTK_FRAME(preview_frame), GTK_SHADOW_IN);
-    gtk_widget_set_size_request(preview_frame, 200, 100);
-    gtk_grid_attach(GTK_GRID(grid), preview_frame, 1, row, 2, 1);
-    
-    widgets->preview_area = gtk_drawing_area_new();
-    gtk_container_add(GTK_CONTAINER(preview_frame), widgets->preview_area);
-    g_signal_connect(widgets->preview_area, "draw", G_CALLBACK(on_preview_draw), widgets->primary_color_button);
-    
-    // Store the preview area for later access
-    store_widget_pointer(app, "preview_area", widgets->preview_area);
-    
-    return grid;
 }
 
 // Display tab creation
@@ -920,70 +798,16 @@ static void on_browse_log_file(GtkButton* button, gpointer user_data) {
 
 // Clear cache button handler
 static void on_clear_cache(GtkButton* button, gpointer user_data) {
-    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
-    GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(button))),
-                                             GTK_DIALOG_MODAL,
-                                             GTK_MESSAGE_QUESTION,
-                                             GTK_BUTTONS_YES_NO,
-                                             "Are you sure you want to clear the cache?");
-    
-    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                                           "This will remove all cached lunar data and may require recalculation.");
-    
-    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_YES) {
-        // Clear cache directory
-        GtkWidget* parent_dialog = gtk_widget_get_toplevel(GTK_WIDGET(button));
-        GtkWidget* cache_entry = GTK_WIDGET(g_object_get_data(G_OBJECT(gtk_widget_get_parent(GTK_WIDGET(button))), 
-                                                            "cache_dir_entry"));
-        const char* cache_dir = gtk_entry_get_text(GTK_ENTRY(cache_entry));
-        
-        // TODO: Implement actual cache clearing
-        g_print("Clearing cache directory: %s\n", cache_dir);
-        
-        GtkWidget* info = gtk_message_dialog_new(GTK_WINDOW(parent_dialog),
-                                               GTK_DIALOG_MODAL,
-                                               GTK_MESSAGE_INFO,
-                                               GTK_BUTTONS_OK,
-                                               "Cache cleared successfully");
-        gtk_dialog_run(GTK_DIALOG(info));
-        gtk_widget_destroy(info);
-    }
-    
-    gtk_widget_destroy(dialog);
+    // LunarCalendarApp* app = (LunarCalendarApp*)user_data; // Unused variable
+    // Implement cache clearing logic here
+    g_print("Cache clearing not yet implemented.\n");
 }
 
 // Reset all settings button handler
 static void on_reset_all_settings(GtkButton* button, gpointer user_data) {
-    LunarCalendarApp* app = (LunarCalendarApp*)user_data;
-    GtkWidget* dialog = gtk_message_dialog_new(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(button))),
-                                             GTK_DIALOG_MODAL,
-                                             GTK_MESSAGE_WARNING,
-                                             GTK_BUTTONS_YES_NO,
-                                             "Are you sure you want to reset all settings?");
-    
-    gtk_message_dialog_format_secondary_text(GTK_MESSAGE_DIALOG(dialog),
-                                           "This will restore all settings to their default values.\n"
-                                           "This action cannot be undone.");
-    
-    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_YES) {
-        // Reset all config values to defaults
-        // TODO: Implement config_reset_to_defaults(app->config);
-        
-        GtkWidget* parent_dialog = gtk_widget_get_toplevel(GTK_WIDGET(button));
-        GtkWidget* info = gtk_message_dialog_new(GTK_WINDOW(parent_dialog),
-                                               GTK_DIALOG_MODAL,
-                                               GTK_MESSAGE_INFO,
-                                               GTK_BUTTONS_OK,
-                                               "All settings have been reset to defaults");
-        gtk_dialog_run(GTK_DIALOG(info));
-        gtk_widget_destroy(info);
-        
-        // Close the settings dialog by simulating a cancel click
-        GtkWidget* cancel_button = GTK_WIDGET(g_object_get_data(G_OBJECT(parent_dialog), "cancel_button"));
-        g_signal_emit_by_name(cancel_button, "clicked");
-    }
-    
-    gtk_widget_destroy(dialog);
+    // LunarCalendarApp* app = (LunarCalendarApp*)user_data; // Unused variable
+    // Implement reset logic here
+    g_print("Reset all settings not yet implemented.\n");
 }
 
 /**
@@ -1019,69 +843,69 @@ static void apply_settings(LunarCalendarApp* app) {
     if (theme_combo) {
         app->config->theme_type = gtk_combo_box_get_active(GTK_COMBO_BOX(theme_combo));
         app->config->use_dark_theme = (app->config->theme_type == 1); // Assuming 1 is Dark
-        g_print("Applied theme_type: %d\n", app->config->theme_type);
-    } else { g_print("WARN: theme_combo not found\n"); }
+        // g_print("Applied theme_type: %d\n", app->config->theme_type); // DEBUG REMOVED
+    } // else { g_print("WARN: theme_combo not found\n"); } // DEBUG REMOVED
     if (primary_color_button) {
          gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(primary_color_button), &app->config->primary_color);
-         g_print("Applied primary_color\n");
-    } else { g_print("WARN: primary_color_button not found\n"); }
+         // g_print("Applied primary_color\n"); // DEBUG REMOVED
+    } // else { g_print("WARN: primary_color_button not found\n"); } // DEBUG REMOVED
     if (secondary_color_button) {
         gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(secondary_color_button), &app->config->secondary_color);
-        g_print("Applied secondary_color\n");
-     } else { g_print("WARN: secondary_color_button not found\n"); }
+        // g_print("Applied secondary_color\n"); // DEBUG REMOVED
+     } // else { g_print("WARN: secondary_color_button not found\n"); } // DEBUG REMOVED
     if (text_color_button) {
         gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(text_color_button), &app->config->text_color);
-         g_print("Applied text_color\n");
-     } else { g_print("WARN: text_color_button not found\n"); }
+         // g_print("Applied text_color\n"); // DEBUG REMOVED
+     } // else { g_print("WARN: text_color_button not found\n"); } // DEBUG REMOVED
     if (font_button) {
         const char* font_name = gtk_font_button_get_font_name(GTK_FONT_BUTTON(font_button));
         g_free(app->config->font_name);
         app->config->font_name = g_strdup(font_name);
-        g_print("Applied font_name: %s\n", app->config->font_name ? app->config->font_name : "(null)");
-    } else { g_print("WARN: font_button not found\n"); }
+        // g_print("Applied font_name: %s\n", app->config->font_name ? app->config->font_name : "(null)"); // DEBUG REMOVED
+    } // else { g_print("WARN: font_button not found\n"); } // DEBUG REMOVED
      if (cell_size_spin) {
         app->config->cell_size = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(cell_size_spin));
-        g_print("Applied cell_size: %d\n", app->config->cell_size);
-    } else { g_print("WARN: cell_size_spin not found\n"); }
+        // g_print("Applied cell_size: %d\n", app->config->cell_size); // DEBUG REMOVED
+    } // else { g_print("WARN: cell_size_spin not found\n"); } // DEBUG REMOVED
 
     // Apply settings from Display tab
     if (show_moon_phases_check) {
         // Use gtk_switch_get_active for GtkSwitch
         app->config->show_moon_phases = gtk_switch_get_active(GTK_SWITCH(show_moon_phases_check));
-        g_print("Applied show_moon_phases: %d\n", app->config->show_moon_phases);
-    } else { g_print("WARN: show_moon_phases_check not found\n"); }
+        // g_print("Applied show_moon_phases: %d\n", app->config->show_moon_phases); // DEBUG REMOVED
+    } // else { g_print("WARN: show_moon_phases_check not found\n"); } // DEBUG REMOVED
     if (highlight_special_days_check) {
         // Use gtk_switch_get_active for GtkSwitch
         app->config->highlight_special_days = gtk_switch_get_active(GTK_SWITCH(highlight_special_days_check));
-         g_print("Applied highlight_special_days: %d\n", app->config->highlight_special_days);
-    } else { g_print("WARN: highlight_special_days_check not found\n"); }
+         // g_print("Applied highlight_special_days: %d\n", app->config->highlight_special_days); // DEBUG REMOVED
+    } // else { g_print("WARN: highlight_special_days_check not found\n"); } // DEBUG REMOVED
     if (show_gregorian_dates_check) {
         // Use gtk_switch_get_active for GtkSwitch
         app->config->show_gregorian_dates = gtk_switch_get_active(GTK_SWITCH(show_gregorian_dates_check));
-        g_print("Applied show_gregorian_dates: %d\n", app->config->show_gregorian_dates);
-    } else { g_print("WARN: show_gregorian_dates_check not found\n"); }
+        // g_print("Applied show_gregorian_dates: %d\n", app->config->show_gregorian_dates); // DEBUG REMOVED
+    } // else { g_print("WARN: show_gregorian_dates_check not found\n"); } // DEBUG REMOVED
     if (show_weekday_names_check) {
          // Use gtk_switch_get_active for GtkSwitch
         app->config->show_weekday_names = gtk_switch_get_active(GTK_SWITCH(show_weekday_names_check));
-         g_print("Applied show_weekday_names: %d\n", app->config->show_weekday_names);
-    } else { g_print("WARN: show_weekday_names_check not found\n"); }
+         // g_print("Applied show_weekday_names: %d\n", app->config->show_weekday_names); // DEBUG REMOVED
+    } // else { g_print("WARN: show_weekday_names_check not found\n"); } // DEBUG REMOVED
     if (show_metonic_cycle_check) {
          // Use gtk_switch_get_active for GtkSwitch
         app->config->show_metonic_cycle = gtk_switch_get_active(GTK_SWITCH(show_metonic_cycle_check));
-        g_print("Applied show_metonic_cycle: %d\n", app->config->show_metonic_cycle);
-    } else { g_print("WARN: show_metonic_cycle_check not found\n"); }
+        // g_print("Applied show_metonic_cycle: %d\n", app->config->show_metonic_cycle); // DEBUG REMOVED
+    } // else { g_print("WARN: show_metonic_cycle_check not found\n"); } // DEBUG REMOVED
     if (show_event_indicators_check) {
         // Use gtk_switch_get_active for GtkSwitch
         app->config->show_event_indicators = gtk_switch_get_active(GTK_SWITCH(show_event_indicators_check));
-        g_print("Applied show_event_indicators: %d\n", app->config->show_event_indicators);
-    } else { g_print("WARN: show_event_indicators_check not found\n"); }
+        // g_print("Applied show_event_indicators: %d\n", app->config->show_event_indicators); // DEBUG REMOVED
+    } // else { g_print("WARN: show_event_indicators_check not found\n"); } // DEBUG REMOVED
      if (week_start_day_combo) {
         app->config->week_start_day = gtk_combo_box_get_active(GTK_COMBO_BOX(week_start_day_combo));
-         g_print("Applied week_start_day: %d\n", app->config->week_start_day);
-    } else { g_print("WARN: week_start_day_combo not found\n"); }
+         // g_print("Applied week_start_day: %d\n", app->config->week_start_day); // DEBUG REMOVED
+    } // else { g_print("WARN: week_start_day_combo not found\n"); } // DEBUG REMOVED
 
     // Apply settings from Names tabs
-    g_print("Applying names settings...\n");
+    // g_print("Applying names settings...\n"); // DEBUG REMOVED
     for (int i = 0; i < 13; i++) {
         char key[20];
         snprintf(key, sizeof(key), "month_entry_%d", i);
@@ -1094,7 +918,6 @@ static void apply_settings(LunarCalendarApp* app) {
         } else {
             // g_print("  WARN: Month entry %d not found\n", i);
             // If entry not found, maybe we should preserve the existing value?
-            // Or clear it if that's the desired behavior? Currently does nothing.
         }
     }
     for (int i = 0; i < 7; i++) {
@@ -1121,7 +944,7 @@ static void apply_settings(LunarCalendarApp* app) {
     }
 
     // Apply settings from Advanced tab
-     g_print("Applying advanced settings...\n");
+     // g_print("Applying advanced settings...\n"); // DEBUG REMOVED
     if (events_file_path_entry) {
         const char* text = gtk_entry_get_text(GTK_ENTRY(events_file_path_entry));
         g_free(app->config->events_file_path);
@@ -1131,28 +954,28 @@ static void apply_settings(LunarCalendarApp* app) {
         // Let's only update the config path for now.
         // g_free(app->events_file_path);
         // app->events_file_path = g_strdup(text);
-         g_print("Applied events_file_path: %s\n", app->config->events_file_path ? app->config->events_file_path : "(null)");
-    } else { g_print("WARN: events_file_path_entry not found\n"); }
+         // g_print("Applied events_file_path: %s\n", app->config->events_file_path ? app->config->events_file_path : "(null)"); // DEBUG REMOVED
+    } else { g_print("WARN: events_file_path_entry not found\n"); } // DEBUG REMOVED
     if (cache_dir_entry) {
         const char* text = gtk_entry_get_text(GTK_ENTRY(cache_dir_entry));
         g_free(app->config->cache_dir);
         app->config->cache_dir = g_strdup(text);
-        g_print("Applied cache_dir: %s\n", app->config->cache_dir ? app->config->cache_dir : "(null)");
-    } else { g_print("WARN: cache_dir_entry not found\n"); }
+        // g_print("Applied cache_dir: %s\n", app->config->cache_dir ? app->config->cache_dir : "(null)"); // DEBUG REMOVED
+    } else { g_print("WARN: cache_dir_entry not found\n"); } // DEBUG REMOVED
     if (log_file_path_entry) {
         const char* text = gtk_entry_get_text(GTK_ENTRY(log_file_path_entry));
         g_free(app->config->log_file_path);
         app->config->log_file_path = g_strdup(text);
-         g_print("Applied log_file_path: %s\n", app->config->log_file_path ? app->config->log_file_path : "(null)");
-    } else { g_print("WARN: log_file_path_entry not found\n"); }
+         // g_print("Applied log_file_path: %s\n", app->config->log_file_path ? app->config->log_file_path : "(null)"); // DEBUG REMOVED
+    } else { g_print("WARN: log_file_path_entry not found\n"); } // DEBUG REMOVED
     if (debug_logging_check) {
         // Use gtk_switch_get_active for GtkSwitch
         app->config->debug_logging = gtk_switch_get_active(GTK_SWITCH(debug_logging_check));
-         g_print("Applied debug_logging: %d\n", app->config->debug_logging);
-    } else { g_print("WARN: debug_logging_check not found\n"); }
+         // g_print("Applied debug_logging: %d\n", app->config->debug_logging); // DEBUG REMOVED
+    } else { g_print("WARN: debug_logging_check not found\n"); } // DEBUG REMOVED
 
     // Indicate that settings have been applied
-    g_print("Configuration update attempted from settings dialog.\n");
+    // g_print("Configuration update attempted from settings dialog.\n"); // DEBUG REMOVED
     g_print("--- apply_settings finished ---\n"); // Debug end
 
     // Remove call to local update function - this should be handled externally
@@ -1313,28 +1136,4 @@ static void on_help_clicked(GtkButton* button, gpointer user_data) {
     gtk_window_set_title(GTK_WINDOW(dialog), "MANI Help");
     gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_destroy(dialog);
-}
-
-// Preview drawing callback
-static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
-    // Simple preview drawing
-    // Draw background
-    cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
-    cairo_paint(cr);
-    
-    // Draw sample box using selected colors
-    GtkWidget* primary_color = (GtkWidget*)user_data;
-    GdkRGBA color;
-    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(primary_color), &color);
-    
-    cairo_set_source_rgba(cr, color.red, color.green, color.blue, color.alpha);
-    cairo_rectangle(cr, 10, 10, width - 20, height - 20);
-    cairo_fill(cr);
-    
-    // Draw sample text
-    cairo_set_source_rgb(cr, 0.1, 0.1, 0.1);
-    cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(cr, 14);
-    cairo_move_to(cr, width/2 - 50, height/2);
-    cairo_show_text(cr, "Preview");
 } 

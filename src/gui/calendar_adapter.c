@@ -92,7 +92,7 @@ CalendarDayCell* calendar_adapter_get_day_info(int year, int month, int day) {
     // Validity check - lunar_day 0 might indicate error from backend
     // The CalendarDayCell struct doesn't have an is_valid field either.
     // The calling code (create_month_model) should handle potential errors from gregorian_to_lunar.
-
+    
     return cell;
 }
 
@@ -166,7 +166,7 @@ GdkPixbuf* create_moon_phase_icon(MoonPhase phase, int size) {
         if (pixbuf) g_object_unref(pixbuf);
         pixbuf = gtk_icon_theme_load_icon(icon_theme, "image-missing-symbolic", size, GTK_ICON_LOOKUP_USE_BUILTIN, NULL);
     }
-
+    
     return pixbuf;
 }
 
@@ -183,7 +183,7 @@ void calendar_adapter_get_special_day_color(SpecialDayType type, GdkRGBA* color)
     const GdkRGBA C_NEW_YEAR = {1.0, 0.8, 0.8, 0.7}; // Light Red
     const GdkRGBA C_FESTIVAL = {0.9, 0.8, 1.0, 0.6}; // Light Purple
     const GdkRGBA C_DEFAULT = {1.0, 1.0, 1.0, 0.0}; // Default (transparent)
-
+    
     switch (type) {
         case TODAY:                 *color = C_TODAY; break;
         case NEW_MOON_DAY:          *color = C_NEW_MOON; break;
@@ -304,7 +304,7 @@ CalendarGridModel* calendar_adapter_create_month_model(int year_identifier, int 
         perror("Failed to allocate CalendarGridModel");
         return NULL;
     }
-
+    
     model->display_year = year_identifier;
     model->display_month = lunar_month;
     model->rows = 6; // Standard grid size
@@ -415,16 +415,16 @@ model_error:
 void calendar_adapter_free_model(CalendarGridModel* model) {
     if (model) {
         if (model->cells) {
-            for (int i = 0; i < model->rows * model->cols; i++) {
-                if (model->cells[i]) {
+    for (int i = 0; i < model->rows * model->cols; i++) {
+        if (model->cells[i]) {
                     // tooltip_text is not stored, no need to free
-                    g_free(model->cells[i]);
-                }
-            }
-            g_free(model->cells);
+            g_free(model->cells[i]);
         }
-        g_free(model->month_name);
-        g_free(model->year_str);
-        g_free(model);
+    }
+    g_free(model->cells);
+        }
+    g_free(model->month_name);
+    g_free(model->year_str);
+    g_free(model);
     }
 } 

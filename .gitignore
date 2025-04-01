@@ -1,0 +1,20 @@
+# Build artifacts
+obj/
+bin/
+
+# Editor backup files
+*~
+*.swp
+*.swo
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE configuration folders (optional)
+.vscode/
+.idea/
+
+# User-specific configuration (adjust if needed)
+# config.ini
+# events.json 

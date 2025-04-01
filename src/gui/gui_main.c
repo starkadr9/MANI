@@ -73,8 +73,8 @@ static void lunar_get_month_name(int month_num, char* buffer, size_t buffer_size
     
     // Default month names
     static const char* default_month_names[] = {
-        "After Yule", "Sol", "Hretha", "Eostre", "Three Milkings",
-        "Mead", "Hay", "Harvest", "Holy", "Winter", "Blood", "Before Yule", "Thirteenth"
+        "Month 1", "Month 2", "Month 3", "Month 4", "Month 5",
+        "Month 6", "Month 7", "Month 8", "Month 9", "Month 10", "Month 11", "Month 12", "Month 13"
     };
     
     LunarCalendarApp* app = g_object_get_data(G_OBJECT(g_application_get_default()), "app_data");
@@ -397,7 +397,7 @@ static void update_calendar_view(LunarCalendarApp* app) {
     gtk_grid_set_row_homogeneous(GTK_GRID(calendar_grid), TRUE);
     gtk_grid_set_column_homogeneous(GTK_GRID(calendar_grid), TRUE);
     gtk_box_pack_start(GTK_BOX(app->calendar_view), calendar_grid, TRUE, TRUE, 0);
-
+    
     // --- Get the data model from the adapter --- 
     CalendarGridModel* model = calendar_adapter_create_month_model(app->current_year, app->current_month);
 
@@ -405,23 +405,23 @@ static void update_calendar_view(LunarCalendarApp* app) {
         // Failed to create the model, show error
         GtkWidget* error_label = gtk_label_new("Error: Could not create calendar model.");
         gtk_grid_attach(GTK_GRID(calendar_grid), error_label, 0, 0, 7, 1);
-        gtk_widget_show_all(app->calendar_view);
+            gtk_widget_show_all(app->calendar_view);
         return; // Exit early
     }
     
     // If we're asking for month 13 but it's not a leap year (model creation might still succeed but be incomplete)
     if (app->current_month == 13 && !calendar_adapter_is_lunar_leap_year(app->current_year)) {
-        GtkWidget* error_label = gtk_label_new("No 13th month in this year - not a lunar leap year.");
-        gtk_grid_attach(GTK_GRID(calendar_grid), error_label, 0, 1, 7, 1);
+            GtkWidget* error_label = gtk_label_new("No 13th month in this year - not a lunar leap year.");
+            gtk_grid_attach(GTK_GRID(calendar_grid), error_label, 0, 1, 7, 1);
         calendar_adapter_free_model(model); // Free the potentially incomplete model
-        gtk_widget_show_all(app->calendar_view);
-        return;
+            gtk_widget_show_all(app->calendar_view);
+            return;
     }
 
     // --- Update Header and Status Bar --- 
     gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), model->month_name);
     // Update status bar with basic info from model
-    snprintf(status_msg, sizeof(status_msg), 
+    snprintf(status_msg, sizeof(status_msg),
              "Displaying: %s, %s (%d days)", 
              model->month_name, model->year_str, model->days_in_month);
     gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, status_msg);
@@ -447,7 +447,7 @@ static void update_calendar_view(LunarCalendarApp* app) {
             gtk_grid_attach(GTK_GRID(calendar_grid), day_label, i, 0, 1, 1);
         }
     }
-
+    
     // --- Fill Calendar Grid from Model --- 
     int grid_row = 1; // Start at row 1 if showing headers
     if (!app->config || !app->config->show_weekday_names) {
@@ -458,7 +458,7 @@ static void update_calendar_view(LunarCalendarApp* app) {
         CalendarDayCell* cell = model->cells[i];
         int col = i % model->cols;
         int row = grid_row + (i / model->cols);
-
+        
         // Create a frame for the day cell
         GtkWidget* day_frame = gtk_frame_new(NULL);
         gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_IN);
@@ -477,42 +477,42 @@ static void update_calendar_view(LunarCalendarApp* app) {
             // GtkWidget* empty_label = gtk_label_new("-");
             // gtk_container_add(GTK_CONTAINER(event_box), empty_label);
         } else { // Valid day cell
-            // Make it obvious that the day is clickable
-            GtkCssProvider* day_provider = gtk_css_provider_new();
-            const char* day_css = ".day-cell:hover { background-color: rgba(120, 120, 120, 0.2); }";
-            gtk_css_provider_load_from_data(day_provider, day_css, -1, NULL);
+        // Make it obvious that the day is clickable
+        GtkCssProvider* day_provider = gtk_css_provider_new();
+        const char* day_css = ".day-cell:hover { background-color: rgba(120, 120, 120, 0.2); }";
+        gtk_css_provider_load_from_data(day_provider, day_css, -1, NULL);
             gtk_style_context_add_provider(style_context, 
-                                        GTK_STYLE_PROVIDER(day_provider), 
-                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-            g_object_unref(day_provider);
-
-            // Create a box for the day content
-            GtkWidget* day_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-            gtk_container_add(GTK_CONTAINER(event_box), day_box);
-            
+                                    GTK_STYLE_PROVIDER(day_provider), 
+                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(day_provider);
+        
+        // Create a box for the day content
+        GtkWidget* day_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        gtk_container_add(GTK_CONTAINER(event_box), day_box);
+        
             // Lunar day number (primary display)
-            char day_str[10];
+        char day_str[10];
             snprintf(day_str, sizeof(day_str), "%d", cell->lunar_day);
-            GtkWidget* day_number = gtk_label_new(day_str);
-            gtk_widget_set_halign(day_number, GTK_ALIGN_START);
-            gtk_box_pack_start(GTK_BOX(day_box), day_number, FALSE, FALSE, 0);
-
+        GtkWidget* day_number = gtk_label_new(day_str);
+        gtk_widget_set_halign(day_number, GTK_ALIGN_START);
+        gtk_box_pack_start(GTK_BOX(day_box), day_number, FALSE, FALSE, 0);
+        
             // Show Gregorian date if enabled
-            if (app->config && app->config->show_gregorian_dates) {
-                char greg_str[32];
-                snprintf(greg_str, sizeof(greg_str), "%04d-%02d-%02d", 
+        if (app->config && app->config->show_gregorian_dates) {
+            char greg_str[32];
+            snprintf(greg_str, sizeof(greg_str), "%04d-%02d-%02d", 
                          cell->greg_year, cell->greg_month, cell->greg_day);
                 GtkWidget* greg_date = gtk_label_new(greg_str);
                  PangoAttrList* attrs = pango_attr_list_new();
                  pango_attr_list_insert(attrs, pango_attr_scale_new(PANGO_SCALE_SMALL));
                  gtk_label_set_attributes(GTK_LABEL(greg_date), attrs);
                  pango_attr_list_unref(attrs);
-                gtk_widget_set_halign(greg_date, GTK_ALIGN_START);
-                gtk_box_pack_start(GTK_BOX(day_box), greg_date, FALSE, FALSE, 0);
-            }
-
+            gtk_widget_set_halign(greg_date, GTK_ALIGN_START);
+            gtk_box_pack_start(GTK_BOX(day_box), greg_date, FALSE, FALSE, 0);
+        }
+        
             // Add moon phase if enabled
-            if (app->config && app->config->show_moon_phases) {
+        if (app->config && app->config->show_moon_phases) {
                  GtkWidget* moon_label = gtk_label_new(calendar_adapter_get_unicode_moon(cell->moon_phase));
                  gtk_widget_set_halign(moon_label, GTK_ALIGN_START);
                  gtk_box_pack_start(GTK_BOX(day_box), moon_label, FALSE, FALSE, 0);
@@ -521,20 +521,20 @@ static void update_calendar_view(LunarCalendarApp* app) {
             // Add event indicator if needed
             if (event_date_has_events(cell->greg_year, cell->greg_month, cell->greg_day)) {
                 GtkWidget* event_indicator = gtk_label_new("📅");
-                gtk_widget_set_halign(event_indicator, GTK_ALIGN_START);
-                gtk_box_pack_start(GTK_BOX(day_box), event_indicator, FALSE, FALSE, 0);
-            }
-
+            gtk_widget_set_halign(event_indicator, GTK_ALIGN_START);
+            gtk_box_pack_start(GTK_BOX(day_box), event_indicator, FALSE, FALSE, 0);
+        }
+        
             // Make the event box clickable
-            gtk_widget_add_events(event_box, GDK_BUTTON_PRESS_MASK);
-            DayClickData* click_data = g_malloc(sizeof(DayClickData));
-            click_data->app = app;
+        gtk_widget_add_events(event_box, GDK_BUTTON_PRESS_MASK);
+        DayClickData* click_data = g_malloc(sizeof(DayClickData));
+        click_data->app = app;
             click_data->year = cell->greg_year;
             click_data->month = cell->greg_month;
             click_data->day = cell->greg_day;
-            g_object_set_data_full(G_OBJECT(event_box), "click-data", click_data, g_free);
-            g_signal_connect(event_box, "button-press-event", G_CALLBACK(on_day_clicked), NULL);
-
+        g_object_set_data_full(G_OBJECT(event_box), "click-data", click_data, g_free);
+        g_signal_connect(event_box, "button-press-event", G_CALLBACK(on_day_clicked), NULL);
+        
             // Set tooltip
             char* tooltip = calendar_adapter_get_tooltip_for_day(cell);
             gtk_widget_set_tooltip_text(day_frame, tooltip);
@@ -543,41 +543,41 @@ static void update_calendar_view(LunarCalendarApp* app) {
             // Apply highlighting based on cell properties and config
             if (app->config && app->config->highlight_special_days && cell->is_special_day) {
                 gtk_style_context_add_class(style_context, "special-day");
-                GtkCssProvider* provider = gtk_css_provider_new();
-                GdkRGBA color;
+            GtkCssProvider* provider = gtk_css_provider_new();
+            GdkRGBA color;
                 calendar_adapter_get_special_day_color(cell->special_day_type, &color);
-                char css[256];
-                snprintf(css, sizeof(css), 
-                        ".special-day { background-color: rgba(%d, %d, %d, %f); }",
-                        (int)(color.red * 255), (int)(color.green * 255), 
-                        (int)(color.blue * 255), color.alpha);
-                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+            char css[256];
+            snprintf(css, sizeof(css), 
+                    ".special-day { background-color: rgba(%d, %d, %d, %f); }",
+                    (int)(color.red * 255), (int)(color.green * 255), 
+                    (int)(color.blue * 255), color.alpha);
+            gtk_css_provider_load_from_data(provider, css, -1, NULL);
                 gtk_style_context_add_provider(style_context, 
-                                            GTK_STYLE_PROVIDER(provider), 
-                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-                g_object_unref(provider);
-            }
-
+                                        GTK_STYLE_PROVIDER(provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(provider);
+        }
+        
             // Event color override
-            GdkRGBA event_color;
+        GdkRGBA event_color;
             if (event_get_date_color(cell->greg_year, cell->greg_month, cell->greg_day, &event_color)) {
                 gtk_style_context_add_class(style_context, "event-day");
-                GtkCssProvider* provider = gtk_css_provider_new();
-                char css[256];
-                snprintf(css, sizeof(css), 
-                        ".event-day { background-color: rgba(%d, %d, %d, %f); }",
-                        (int)(event_color.red * 255), (int)(event_color.green * 255), 
-                        (int)(event_color.blue * 255), event_color.alpha);
-                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+            GtkCssProvider* provider = gtk_css_provider_new();
+            char css[256];
+            snprintf(css, sizeof(css), 
+                    ".event-day { background-color: rgba(%d, %d, %d, %f); }",
+                    (int)(event_color.red * 255), (int)(event_color.green * 255), 
+                    (int)(event_color.blue * 255), event_color.alpha);
+            gtk_css_provider_load_from_data(provider, css, -1, NULL);
                 gtk_style_context_add_provider(style_context, 
-                                            GTK_STYLE_PROVIDER(provider), 
-                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-                g_object_unref(provider);
-            }
-
+                                        GTK_STYLE_PROVIDER(provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(provider);
+        }
+        
             // Highlight today
             if (cell->is_today) {
-                gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_IN);
+            gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_IN);
                 gtk_style_context_add_class(style_context, "today-cell"); // Add a class for CSS styling
                 // GtkWidget* today_label = gtk_label_new("Today");
                 // gtk_widget_set_halign(today_label, GTK_ALIGN_START);
@@ -589,24 +589,24 @@ static void update_calendar_view(LunarCalendarApp* app) {
                 cell->greg_month == app->selected_day_month && 
                 cell->greg_day == app->selected_day_day) {
                 gtk_style_context_add_class(style_context, "selected-day");
-                GtkCssProvider* provider = gtk_css_provider_new();
-                const char* css = ".selected-day { border: 2px solid #3584e4; background-color: rgba(53, 132, 228, 0.3); }";
-                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+            GtkCssProvider* provider = gtk_css_provider_new();
+            const char* css = ".selected-day { border: 2px solid #3584e4; background-color: rgba(53, 132, 228, 0.3); }";
+            gtk_css_provider_load_from_data(provider, css, -1, NULL);
                 gtk_style_context_add_provider(style_context, 
-                                            GTK_STYLE_PROVIDER(provider), 
-                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-                g_object_unref(provider);
-                gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_OUT);
+                                        GTK_STYLE_PROVIDER(provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(provider);
+            gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_OUT);
             }
         }
-
+        
         // Add the day cell to the grid
         gtk_grid_attach(GTK_GRID(calendar_grid), day_frame, col, row, 1, 1);
     }
 
     // Free the model now that the grid is built
     calendar_adapter_free_model(model);
-
+    
     // Show all the widgets
     gtk_widget_show_all(app->calendar_view);
 }
@@ -1248,10 +1248,10 @@ static void update_month_label(LunarCalendarApp* app) {
         
         // Full moon names for the 12 regular months
         const char* full_moon_names[] = {
-            "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon", 
-            "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
-            "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon", 
-            "Blue Moon" // Name for the 13th month
+            "1 Moon", "2 Moon", "3 Moon", "4 Moon", 
+            "5 Moon", "6 Moon", "7 Moon", "8 Moon",
+            "9 Moon", "10 Moon", "11 Moon", "12 Moon", 
+            "13 Moon" // Name for the 13th month
         };
         
         // Use appropriate name for the full moon

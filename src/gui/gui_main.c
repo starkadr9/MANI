@@ -176,14 +176,14 @@ int gui_app_run(LunarCalendarApp* app) {
     // Store app data in the application for global access
     g_object_set_data(G_OBJECT(app->app), "app_data", app);
     
-    // Hold the application to prevent it from exiting
-    g_application_hold(G_APPLICATION(app->app));
+    // Hold/Release is not needed for a single-window application
+    // g_application_hold(G_APPLICATION(app->app));
     
     // Run the application
     int status = g_application_run(G_APPLICATION(app->app), 0, NULL);
     
-    // Release the application
-    g_application_release(G_APPLICATION(app->app));
+    // Hold/Release is not needed for a single-window application
+    // g_application_release(G_APPLICATION(app->app));
     
     return status;
 }
@@ -1525,10 +1525,11 @@ static void update_ui_from_config(LunarCalendarApp* app) {
 static void on_settings_clicked(GtkButton* button, gpointer user_data) {
     LunarCalendarApp* app = (LunarCalendarApp*)user_data;
     
-    // Show the settings dialog
-    if (settings_dialog_show(app, GTK_WINDOW(app->window))) {
-        // Settings were changed and saved
-        update_ui_from_config(app);
+    // Show the settings dialog, passing the update function
+    if (settings_dialog_show(app, GTK_WINDOW(app->window), update_ui_from_config)) {
+        // Settings were changed and saved (OK was clicked)
+        // No need to call update_ui_from_config again here as it's handled by settings_dialog_show
+        g_print("Settings updated after dialog closed with OK.\n");
     }
 }
 

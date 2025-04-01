@@ -21,7 +21,7 @@ typedef struct {
 } DayClickData;
 
 // Get weekday name
-static const char* get_weekday_name(Weekday weekday) {
+/*static const char* get_weekday_name(Weekday weekday) {
     switch (weekday) {
         case SUNDAY: return "Sunday";
         case MONDAY: return "Monday";
@@ -32,7 +32,7 @@ static const char* get_weekday_name(Weekday weekday) {
         case SATURDAY: return "Saturday";
         default: return "Unknown";
     }
-}
+}*/
 
 // Forward declarations
 static void activate(GtkApplication* app, gpointer user_data);
@@ -57,6 +57,7 @@ static void update_metonic_cycle_display(LunarCalendarApp* app);
 static void on_metonic_help_clicked(GtkButton* button, gpointer user_data);
 static void update_ui_from_config(LunarCalendarApp* app);
 static void on_settings_clicked(GtkButton* button, gpointer user_data);
+static gboolean draw_moon_phase_cairo(GtkWidget *widget, cairo_t *cr, gpointer data);
 
 /**
  * Get the name of a lunar month.
@@ -112,7 +113,7 @@ LunarCalendarApp* gui_app_init(int* argc, char*** argv) {
     
     // Initialize the application
     LunarCalendarApp* app = g_malloc0(sizeof(LunarCalendarApp));
-    app->app = gtk_application_new("org.lunar.mani", G_APPLICATION_FLAGS_NONE);
+    app->app = gtk_application_new("org.lunar.mani", G_APPLICATION_DEFAULT_FLAGS); // Fix deprecated flag
     
     // Connect the activate signal
     g_signal_connect(app->app, "activate", G_CALLBACK(activate), app);
@@ -172,7 +173,19 @@ LunarCalendarApp* gui_app_init(int* argc, char*** argv) {
 
 // Run the application main loop
 int gui_app_run(LunarCalendarApp* app) {
-    return g_application_run(G_APPLICATION(app->app), 0, NULL);
+    // Store app data in the application for global access
+    g_object_set_data(G_OBJECT(app->app), "app_data", app);
+    
+    // Hold the application to prevent it from exiting
+    g_application_hold(G_APPLICATION(app->app));
+    
+    // Run the application
+    int status = g_application_run(G_APPLICATION(app->app), 0, NULL);
+    
+    // Release the application
+    g_application_release(G_APPLICATION(app->app));
+    
+    return status;
 }
 
 // Clean up resources
@@ -215,22 +228,37 @@ void gui_app_cleanup(LunarCalendarApp* app) {
     }
 }
 
-// Callback when application is activated
+// Callback function when the application is activated
 static void activate(GtkApplication* app, gpointer user_data) {
+    // Get the application data
     LunarCalendarApp* lunar_app = (LunarCalendarApp*)user_data;
     
-    // Create the application window
-    lunar_app->window = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(lunar_app->window), "MANI - Germanic Lunar Calendar");
-    gtk_window_set_default_size(GTK_WINDOW(lunar_app->window), 
-                              lunar_app->config->window_width, 
-                              lunar_app->config->window_height);
+    // Create the main window if it doesn't exist
+    if (!lunar_app->window) {
+        lunar_app->window = gtk_application_window_new(app);
+        
+        // Set window title
+        gtk_window_set_title(GTK_WINDOW(lunar_app->window), "MANI - Lunar Calendar");
+        
+        // Set window size from configuration
+        if (lunar_app->config) {
+            gtk_window_set_default_size(GTK_WINDOW(lunar_app->window), 
+                                    lunar_app->config->window_width, 
+                                    lunar_app->config->window_height);
+        } else {
+            // Default size if no config
+            gtk_window_set_default_size(GTK_WINDOW(lunar_app->window), 800, 600);
+        }
+        
+        // Connect the window destroy signal to gtk_main_quit directly
+        g_signal_connect(lunar_app->window, "destroy", G_CALLBACK(gtk_window_close), NULL);
+        
+        // Connect the window destroy signal to our custom handler for cleaning up resources
+        g_signal_connect(lunar_app->window, "destroy", G_CALLBACK(on_window_destroy), lunar_app);
+    }
     
-    // Connect window destroy signal
-    g_signal_connect(lunar_app->window, "destroy", G_CALLBACK(on_window_destroy), lunar_app);
-    
-    // Store app data in the application for global access
-    g_object_set_data(G_OBJECT(app), "app_data", lunar_app);
+    // Save GTK app reference
+    lunar_app->gtk_app = app;
     
     // Build the UI
     build_ui(lunar_app);
@@ -242,17 +270,15 @@ static void activate(GtkApplication* app, gpointer user_data) {
     if (lunar_app->metonic_cycle_bar && !lunar_app->config->show_metonic_cycle) {
         gtk_widget_hide(lunar_app->metonic_cycle_bar);
     }
+    
+    // Initialize GTK main loop (important for proper quit behavior)
+    gtk_main();
 }
 
 /**
  * Build the application UI
  */
 static void build_ui(LunarCalendarApp* app) {
-    // Create the main window
-    app->window = gtk_application_window_new(app->app);
-    gtk_window_set_title(GTK_WINDOW(app->window), "MANI - Germanic Lunar Calendar");
-    gtk_window_set_default_size(GTK_WINDOW(app->window), 800, 600);
-    
     // Create header bar
     app->header_bar = gtk_header_bar_new();
     gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(app->header_bar), TRUE);
@@ -261,7 +287,7 @@ static void build_ui(LunarCalendarApp* app) {
     GDate today;
     g_date_set_time_t(&today, time(NULL));
     int current_year = g_date_get_year(&today);
-    int eld_year = calculate_eld_year(current_year);
+    int eld_year = calculate_eld_year_from_gregorian(current_year);
     
     char title[100];
     snprintf(title, sizeof(title), "MANI - Eld Year %d", eld_year);
@@ -286,584 +312,301 @@ static void build_ui(LunarCalendarApp* app) {
     // Create sidebar (fixed width 200px)
     app->sidebar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_size_request(app->sidebar, 200, -1);
-    gtk_container_set_border_width(GTK_CONTAINER(app->sidebar), 10);
     gtk_box_pack_start(GTK_BOX(content_box), app->sidebar, FALSE, FALSE, 0);
-
-    // Add sidebar separator
-    GtkWidget* separator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
-    gtk_box_pack_start(GTK_BOX(content_box), separator, FALSE, FALSE, 0);
     
-    // Create navigation controls
+    // Create a scrolled window for the calendar
+    GtkWidget* scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), 
+                                  GTK_POLICY_AUTOMATIC, 
+                                  GTK_POLICY_AUTOMATIC);
+    gtk_box_pack_start(GTK_BOX(content_box), scroll, TRUE, TRUE, 0);
+    
+    // Create a box for the calendar
+    app->calendar_view = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_container_add(GTK_CONTAINER(scroll), app->calendar_view);
+    
+    // Add navigation controls
     GtkWidget* nav_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    gtk_box_pack_start(GTK_BOX(app->main_layout), nav_box, FALSE, FALSE, 5);
+    gtk_box_set_homogeneous(GTK_BOX(nav_box), FALSE);
+    gtk_container_set_border_width(GTK_CONTAINER(nav_box), 5);
+    gtk_box_pack_start(GTK_BOX(app->calendar_view), nav_box, FALSE, FALSE, 0);
     
     // Previous month button
-    GtkWidget* prev_button = gtk_button_new_with_label("◀ Previous");
-    g_signal_connect(prev_button, "clicked", G_CALLBACK(on_prev_month), app);
+    GtkWidget* prev_button = gtk_button_new_from_icon_name("go-previous-symbolic", GTK_ICON_SIZE_BUTTON);
     gtk_box_pack_start(GTK_BOX(nav_box), prev_button, FALSE, FALSE, 0);
+    g_signal_connect(prev_button, "clicked", G_CALLBACK(on_prev_month), app);
     
-    // Month selector
+    // Month selector (combobox)
     GtkWidget* month_combo = gtk_combo_box_text_new();
     for (int i = 1; i <= 13; i++) {
-        char month_name[32];
-        lunar_get_month_name(i, month_name, sizeof(month_name));
-        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(month_combo), month_name);
+        char month_text[50];
+        lunar_get_month_name(i, month_text, sizeof(month_text));
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(month_combo), month_text);
     }
     gtk_combo_box_set_active(GTK_COMBO_BOX(month_combo), app->current_month - 1);
+    gtk_box_pack_start(GTK_BOX(nav_box), month_combo, FALSE, FALSE, 5);
     g_signal_connect(month_combo, "changed", G_CALLBACK(on_month_changed), app);
-    gtk_box_pack_start(GTK_BOX(nav_box), month_combo, FALSE, FALSE, 0);
     
-    // Year selector
-    GtkWidget* year_selector = gtk_spin_button_new_with_range(1900, 2100, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(year_selector), app->current_year);
-    g_signal_connect(year_selector, "value-changed", G_CALLBACK(on_year_changed), app);
-    gtk_box_pack_start(GTK_BOX(nav_box), year_selector, FALSE, FALSE, 0);
+    // Year selector (spinbutton)
+    GtkWidget* year_spin = gtk_spin_button_new_with_range(1, 9999, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(year_spin), app->current_year);
+    gtk_box_pack_start(GTK_BOX(nav_box), year_spin, FALSE, FALSE, 5);
+    g_signal_connect(year_spin, "value-changed", G_CALLBACK(on_year_changed), app);
     
     // Next month button
-    GtkWidget* next_button = gtk_button_new_with_label("Next ▶");
-    g_signal_connect(next_button, "clicked", G_CALLBACK(on_next_month), app);
+    GtkWidget* next_button = gtk_button_new_from_icon_name("go-next-symbolic", GTK_ICON_SIZE_BUTTON);
     gtk_box_pack_start(GTK_BOX(nav_box), next_button, FALSE, FALSE, 0);
+    g_signal_connect(next_button, "clicked", G_CALLBACK(on_next_month), app);
     
-    // Eld Year label
-    app->year_label = gtk_label_new(NULL);
-    char eld_year_text[50];
-    snprintf(eld_year_text, sizeof(eld_year_text), "Eld Year: %d", eld_year);
-    gtk_label_set_text(GTK_LABEL(app->year_label), eld_year_text);
-    gtk_box_pack_end(GTK_BOX(nav_box), app->year_label, FALSE, FALSE, 0);
-    
-    // Create calendar scrolled window
-    GtkWidget* scrolled_window = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window),
-                                  GTK_POLICY_AUTOMATIC,
-                                  GTK_POLICY_AUTOMATIC);
-    gtk_box_pack_start(GTK_BOX(content_box), scrolled_window, TRUE, TRUE, 0);
-    
-    // Create calendar view container
-    app->calendar_view = gtk_grid_new();
-    gtk_container_set_border_width(GTK_CONTAINER(app->calendar_view), 10);
-    gtk_container_add(GTK_CONTAINER(scrolled_window), app->calendar_view);
-    
-    // Create status bar
+    // Add a status bar at the bottom
     app->status_bar = gtk_statusbar_new();
     gtk_box_pack_end(GTK_BOX(app->main_layout), app->status_bar, FALSE, FALSE, 0);
     
-    // Initialize the metonic cycle status bar (if enabled in config)
+    // Initialize the metonic cycle display
     init_metonic_cycle_bar(app);
     
-    // Update calendar view with current month
-    update_calendar_view(app);
-    
-    // Update sidebar
-    update_sidebar(app);
-    
-    // Connect signals
-    g_signal_connect(app->window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-    
-    // Show all widgets
-    gtk_widget_show_all(app->window);
+    // Update UI
+    update_ui(app);
 }
 
-// Update the calendar view to show the current LUNAR month
+// Update the calendar view to show the current LUNAR month using the CalendarGridModel
 static void update_calendar_view(LunarCalendarApp* app) {
-    // Clear the calendar view
+    // ---- Variable Declarations ----
+    char status_msg[256]; // Single declaration for status message
+    // ---- End Variable Declarations ----
+
+    // Clear the calendar view, but keep the navigation controls
     GList* children = gtk_container_get_children(GTK_CONTAINER(app->calendar_view));
-    for (GList* iter = children; iter != NULL; iter = g_list_next(iter)) {
-        gtk_widget_destroy(GTK_WIDGET(iter->data));
+    // Skip the first child which is the navigation controls
+    if (children != NULL) {
+        GList* iter = children;
+        if (iter->next != NULL) {  // Skip first child (navigation controls)
+            iter = iter->next;
+            while (iter != NULL) {
+                gtk_widget_destroy(GTK_WIDGET(iter->data));
+                iter = g_list_next(iter);
+            }
+        }
     }
     g_list_free(children);
     
-    // Find full moons for the current year and a bit of prev/next year
-    Date full_moons[20]; // Store up to 20 full moons
-    int moon_count = get_year_full_moons(app->current_year, full_moons, 20);
+    // Create a calendar grid
+    GtkWidget* calendar_grid = gtk_grid_new();
+    gtk_grid_set_row_spacing(GTK_GRID(calendar_grid), 2);
+    gtk_grid_set_column_spacing(GTK_GRID(calendar_grid), 2);
+    gtk_grid_set_row_homogeneous(GTK_GRID(calendar_grid), TRUE);
+    gtk_grid_set_column_homogeneous(GTK_GRID(calendar_grid), TRUE);
+    gtk_box_pack_start(GTK_BOX(app->calendar_view), calendar_grid, TRUE, TRUE, 0);
+
+    // --- Get the data model from the adapter --- 
+    CalendarGridModel* model = calendar_adapter_create_month_model(app->current_year, app->current_month);
+
+    if (!model) {
+        // Failed to create the model, show error
+        GtkWidget* error_label = gtk_label_new("Error: Could not create calendar model.");
+        gtk_grid_attach(GTK_GRID(calendar_grid), error_label, 0, 0, 7, 1);
+        gtk_widget_show_all(app->calendar_view);
+        return; // Exit early
+    }
     
-    if (moon_count == 0) {
-        // No full moons found (shouldn't happen), show error
-        GtkWidget* error_label = gtk_label_new("Error: Could not find full moons for this year.");
-        gtk_grid_attach(GTK_GRID(app->calendar_view), error_label, 0, 0, 7, 1);
+    // If we're asking for month 13 but it's not a leap year (model creation might still succeed but be incomplete)
+    if (app->current_month == 13 && !calendar_adapter_is_lunar_leap_year(app->current_year)) {
+        GtkWidget* error_label = gtk_label_new("No 13th month in this year - not a lunar leap year.");
+        gtk_grid_attach(GTK_GRID(calendar_grid), error_label, 0, 1, 7, 1);
+        calendar_adapter_free_model(model); // Free the potentially incomplete model
+        gtk_widget_show_all(app->calendar_view);
         return;
     }
-    
-    // Find the full moon that corresponds to our current lunar month
-    // Lunar months are 1-indexed, so month 1 is the first full moon after winter solstice
-    Date winter_solstice = { app->current_year, 12, 21 };
-    
-    // If we're before winter solstice, use previous year's
-    Date current_date = { app->current_year, app->current_month, 1 };
-    if (current_date.month < 12 || (current_date.month == 12 && current_date.day < 21)) {
-        winter_solstice.year--;
-    }
-    
-    // Find the app->current_month'th full moon after winter solstice
-    int target_moon_index = -1;
-    int moon_counter = 0;
-    for (int i = 0; i < moon_count; i++) {
-        if (compare_dates(full_moons[i], winter_solstice) > 0) {
-            moon_counter++;
-            if (moon_counter == app->current_month) {
-                target_moon_index = i;
-                break;
-            }
-        }
-    }
-    
-    if (target_moon_index == -1) {
-        // Couldn't find the requested lunar month
-        char error_msg[100];
-        snprintf(error_msg, sizeof(error_msg), "Error: Could not find lunar month %d for year %d.", 
-                app->current_month, app->current_year);
-        GtkWidget* error_label = gtk_label_new(error_msg);
-        gtk_grid_attach(GTK_GRID(app->calendar_view), error_label, 0, 0, 7, 1);
-        return;
-    }
-    
-    // This full moon is the first day of our lunar month
-    Date month_start = full_moons[target_moon_index];
-    
-    // Find the next full moon (end of lunar month)
-    Date month_end;
-    Date next_month_start;
-    if (target_moon_index + 1 < moon_count) {
-        month_end = full_moons[target_moon_index + 1];
-        next_month_start = month_end; // The next month starts at the next full moon
-    } else {
-        // If no next full moon found, estimate it as 29.5 days later (round to 29)
-        month_end = month_start;
-        // Add 29 days to month_end
-        for (int i = 0; i < 29; i++) {
-            if (month_end.day < 28) {
-                month_end.day++;
-            } else {
-                // Handle month end
-                int days_in_month = 31;
-                if (month_end.month == 4 || month_end.month == 6 || 
-                    month_end.month == 9 || month_end.month == 11) {
-                    days_in_month = 30;
-                } else if (month_end.month == 2) {
-                    days_in_month = is_gregorian_leap_year(month_end.year) ? 29 : 28;
-                }
-                
-                if (month_end.day < days_in_month) {
-                    month_end.day++;
-                } else {
-                    month_end.day = 1;
-                    if (month_end.month < 12) {
-                        month_end.month++;
-                    } else {
-                        month_end.month = 1;
-                        month_end.year++;
-                    }
-                }
-            }
-        }
-        next_month_start = month_end;
-    }
-    
-    // Calculate days in this lunar month
-    int days_in_month = days_between(month_start, month_end);
-    
-    // Enforce proper lunar month length (29-30 days)
-    if (days_in_month < 29) {
-        // Month too short, extend to 29 days
-        days_in_month = 29;
-        // Adjust month_end
-        month_end = month_start;
-        for (int i = 0; i < 29; i++) {
-            if (month_end.day < 28) {
-                month_end.day++;
-            } else {
-                int days_in_greg_month = 31;
-                if (month_end.month == 4 || month_end.month == 6 || 
-                    month_end.month == 9 || month_end.month == 11) {
-                    days_in_greg_month = 30;
-                } else if (month_end.month == 2) {
-                    days_in_greg_month = is_gregorian_leap_year(month_end.year) ? 29 : 28;
-                }
-                
-                if (month_end.day < days_in_greg_month) {
-                    month_end.day++;
-                } else {
-                    month_end.day = 1;
-                    if (month_end.month < 12) {
-                        month_end.month++;
-                    } else {
-                        month_end.month = 1;
-                        month_end.year++;
-                    }
-                }
-            }
-        }
-        next_month_start = month_end;
-    } else if (days_in_month > 30) {
-        // Month too long, truncate to 30 days
-        days_in_month = 30;
-        // Adjust month_end
-        month_end = month_start;
-        for (int i = 0; i < 30; i++) {
-            if (month_end.day < 28) {
-                month_end.day++;
-            } else {
-                int days_in_greg_month = 31;
-                if (month_end.month == 4 || month_end.month == 6 || 
-                    month_end.month == 9 || month_end.month == 11) {
-                    days_in_greg_month = 30;
-                } else if (month_end.month == 2) {
-                    days_in_greg_month = is_gregorian_leap_year(month_end.year) ? 29 : 28;
-                }
-                
-                if (month_end.day < days_in_greg_month) {
-                    month_end.day++;
-                } else {
-                    month_end.day = 1;
-                    if (month_end.month < 12) {
-                        month_end.month++;
-                    } else {
-                        month_end.month = 1;
-                        month_end.year++;
-                    }
-                }
-            }
-        }
-        next_month_start = month_end;
-    }
-    
-    // Calculate days needed to complete the calendar grid
-    int additional_days = 6;  // Display the first 6 days of the next lunar month
-    
-    // Calculate the days in this lunar month plus additional days
-    int total_days_to_display = days_in_month + additional_days;
-    
-    // Create month title with Germanic lunar month name and Gregorian reference
-    char header[100];
-    char* month_descriptions[] = {
-        "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon", 
-        "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
-        "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon", "Blue Moon"
-    };
-    
-    // Get the current month number (1-based) in the Gregorian calendar
-    int current_gregorian_month = month_start.month;
-    
-    // Default moon name from the array
-    const char* header_moon_name = month_descriptions[(app->current_month - 1) % 13];
-    
-    // Use custom full moon name if available for the current month
-    if (app->config && 
-        current_gregorian_month >= 1 && current_gregorian_month <= 12 && 
-        app->config->custom_full_moon_names[current_gregorian_month - 1] && 
-        strlen(app->config->custom_full_moon_names[current_gregorian_month - 1]) > 0) {
-        header_moon_name = app->config->custom_full_moon_names[current_gregorian_month - 1];
-    }
-    
-    // Use the Germanic lunar month name with the Gregorian reference date
-    snprintf(header, sizeof(header), "Lunar Month %d (%s) - %d",
-            app->current_month, 
-            header_moon_name,
-            app->current_year);
-    gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), header);
-    
-    // Add day name headers based on week start preference
+
+    // --- Update Header and Status Bar --- 
+    gtk_header_bar_set_subtitle(GTK_HEADER_BAR(app->header_bar), model->month_name);
+    // Update status bar with basic info from model
+    snprintf(status_msg, sizeof(status_msg), 
+             "Displaying: %s, %s (%d days)", 
+             model->month_name, model->year_str, model->days_in_month);
+    gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, status_msg);
+
+    // --- Add Day Name Headers --- 
     const char* day_names[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    
-    // Only show weekday headers if the setting is enabled
     if (app->config && app->config->show_weekday_names) {
-        int week_start = 0; // Default to Sunday (0)
+        int week_start = 0; // Default Sunday
         if (app->config && app->config->week_start_day >= 0 && app->config->week_start_day <= 2) {
-            // 0 = Sunday, 1 = Monday, 2 = Saturday
-            if (app->config->week_start_day == 1) {
-                week_start = 1; // Monday
-            } else if (app->config->week_start_day == 2) {
-                week_start = 6; // Saturday
-            }
+            if (app->config->week_start_day == 1) week_start = 1; // Monday
+            else if (app->config->week_start_day == 2) week_start = 6; // Saturday
         }
         
         for (int i = 0; i < 7; i++) {
             int day_index = (week_start + i) % 7;
-            
-            // Use custom weekday names if available
             const char* day_name = day_names[day_index];
             if (app->config->custom_weekday_names[day_index] && 
                 strlen(app->config->custom_weekday_names[day_index]) > 0) {
                 day_name = app->config->custom_weekday_names[day_index];
             }
-            
             GtkWidget* day_label = gtk_label_new(day_name);
             gtk_widget_set_hexpand(day_label, TRUE);
-            gtk_grid_attach(GTK_GRID(app->calendar_view), day_label, i, 0, 1, 1);
+            gtk_grid_attach(GTK_GRID(calendar_grid), day_label, i, 0, 1, 1);
         }
     }
-    
-    // Find the day of week for the full moon (start of lunar month)
-    Weekday first_day_weekday = calculate_weekday(month_start.year, month_start.month, month_start.day);
-    
-    // Adjust first day column based on week start preference
-    if (app->config && app->config->week_start_day >= 0 && app->config->week_start_day <= 2) {
-        if (app->config->week_start_day == 1) { // Monday
-            first_day_weekday = (first_day_weekday == 0) ? 6 : first_day_weekday - 1;
-        } else if (app->config->week_start_day == 2) { // Saturday
-            first_day_weekday = (first_day_weekday + 1) % 7;
-        }
-    }
-    
-    // Push a status message to indicate the calendar type
-    char status_msg[256];
-    const char* status_moon_name = month_descriptions[(app->current_month - 1) % 13];
 
-    // Use custom full moon name if available for the current month
-    if (app->config && 
-        month_start.month >= 1 && month_start.month <= 12 && 
-        app->config->custom_full_moon_names[month_start.month - 1] && 
-        strlen(app->config->custom_full_moon_names[month_start.month - 1]) > 0) {
-        status_moon_name = app->config->custom_full_moon_names[month_start.month - 1];
-    }
-
-    snprintf(status_msg, sizeof(status_msg), 
-             "Ready - Displaying Germanic lunar month %d (%s) - Full Moon: %04d-%02d-%02d",
-             app->current_month, 
-             status_moon_name,
-             month_start.year, month_start.month, month_start.day);
-    gtk_statusbar_push(GTK_STATUSBAR(app->status_bar), 0, status_msg);
-    
-    // Fill in the calendar grid
-    int row = 1; // Start at row 1 if showing headers, otherwise start at row 0
+    // --- Fill Calendar Grid from Model --- 
+    int grid_row = 1; // Start at row 1 if showing headers
     if (!app->config || !app->config->show_weekday_names) {
-        row = 0; // If not showing weekday names, start the grid at row 0
+        grid_row = 0; // If not showing headers, start grid at row 0
     }
-    int col = first_day_weekday;
-    
-    // Current date for tracking
-    Date current_date_in_month = month_start;
-    
-    // For each day in the lunar month + additional days
-    for (int lunar_day = 1; lunar_day <= total_days_to_display; lunar_day++) {
-        // Check if this day is part of the next month (after the next full moon)
-        gboolean is_next_month = (lunar_day > days_in_month);
-        
+
+    for (int i = 0; i < model->rows * model->cols; i++) {
+        CalendarDayCell* cell = model->cells[i];
+        int col = i % model->cols;
+        int row = grid_row + (i / model->cols);
+
         // Create a frame for the day cell
         GtkWidget* day_frame = gtk_frame_new(NULL);
         gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_IN);
         gtk_widget_set_size_request(day_frame, 80, 80);
         
-        // Create an event box to properly capture events
+        // Create an event box to capture clicks
         GtkWidget* event_box = gtk_event_box_new();
         gtk_container_add(GTK_CONTAINER(day_frame), event_box);
-        
-        // Make it obvious that the day is clickable
-        GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
-        gtk_style_context_add_class(context, "day-cell");
-        
-        // Add CSS to make it look interactive
-        GtkCssProvider* day_provider = gtk_css_provider_new();
-        const char* day_css = ".day-cell:hover { background-color: rgba(120, 120, 120, 0.2); }";
-        gtk_css_provider_load_from_data(day_provider, day_css, -1, NULL);
-        gtk_style_context_add_provider(context, 
-                                    GTK_STYLE_PROVIDER(day_provider), 
-                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-        g_object_unref(day_provider);
-        
-        // Create a box for the day content
-        GtkWidget* day_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-        gtk_container_add(GTK_CONTAINER(event_box), day_box);
-        
-        // Lunar day number (this is the primary display)
-        char day_str[10];
-        
-        // Adjust the day number for next month display
-        int display_day = lunar_day;
-        if (is_next_month) {
-            display_day = lunar_day - days_in_month;
-        }
-        
-        snprintf(day_str, sizeof(day_str), "%d", display_day);
-        GtkWidget* day_number = gtk_label_new(day_str);
-        gtk_widget_set_halign(day_number, GTK_ALIGN_START);
-        gtk_box_pack_start(GTK_BOX(day_box), day_number, FALSE, FALSE, 0);
-        
-        // Get Gregorian date info
-        int greg_year = current_date_in_month.year;
-        int greg_month = current_date_in_month.month;
-        int greg_day = current_date_in_month.day;
-        
-        // Show Gregorian date for reference only if enabled in settings
-        GtkWidget* greg_date = NULL;
-        if (app->config && app->config->show_gregorian_dates) {
-            char greg_str[32];
-            snprintf(greg_str, sizeof(greg_str), "%04d-%02d-%02d", 
-                     greg_year, greg_month, greg_day);
+        GtkStyleContext* style_context = gtk_widget_get_style_context(day_frame);
+        gtk_style_context_add_class(style_context, "day-cell");
+
+        if (!cell) { // Empty cell (before 1st or after last day)
+            gtk_style_context_add_class(style_context, "empty-cell");
+             gtk_widget_set_opacity(day_frame, 0.1); // Make empty cells very faint
+            // Optionally add a placeholder label or leave blank
+            // GtkWidget* empty_label = gtk_label_new("-");
+            // gtk_container_add(GTK_CONTAINER(event_box), empty_label);
+        } else { // Valid day cell
+            // Make it obvious that the day is clickable
+            GtkCssProvider* day_provider = gtk_css_provider_new();
+            const char* day_css = ".day-cell:hover { background-color: rgba(120, 120, 120, 0.2); }";
+            gtk_css_provider_load_from_data(day_provider, day_css, -1, NULL);
+            gtk_style_context_add_provider(style_context, 
+                                        GTK_STYLE_PROVIDER(day_provider), 
+                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            g_object_unref(day_provider);
+
+            // Create a box for the day content
+            GtkWidget* day_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+            gtk_container_add(GTK_CONTAINER(event_box), day_box);
             
-            greg_date = gtk_label_new(greg_str);
-            gtk_widget_set_halign(greg_date, GTK_ALIGN_START);
-            gtk_box_pack_start(GTK_BOX(day_box), greg_date, FALSE, FALSE, 0);
-        }
-        
-        // Get full day info for special day highlighting and moon phase
-        CalendarDayCell* day_cell = calendar_adapter_get_germanic_day_info(
-            greg_year, greg_month, greg_day);
-        
-        // Add moon phase
-        GtkWidget* moon_phase;
-        
-        // Use adapter to get icon
-        if (app->config && app->config->show_moon_phases) {
-            moon_phase = calendar_adapter_get_moon_phase_icon(day_cell->moon_phase);
-        } else {
-            // Fallback to text
-            moon_phase = gtk_label_new(calendar_adapter_get_moon_phase_name(day_cell->moon_phase));
-            gtk_widget_set_halign(moon_phase, GTK_ALIGN_START);
-        }
-        
-        gtk_box_pack_start(GTK_BOX(day_box), moon_phase, FALSE, FALSE, 0);
-        
-        // If this day has events, add an indicator
-        if (event_date_has_events(greg_year, greg_month, greg_day)) {
-            GtkWidget* event_indicator = gtk_label_new("📅");  // Calendar emoji
-            gtk_widget_set_halign(event_indicator, GTK_ALIGN_START);
-            gtk_box_pack_start(GTK_BOX(day_box), event_indicator, FALSE, FALSE, 0);
-        }
-        
-        // Make sure the event box can receive events
-        gtk_widget_add_events(event_box, GDK_BUTTON_PRESS_MASK);
-        
-        // Create the click data - store directly on the widget 
-        DayClickData* click_data = g_malloc(sizeof(DayClickData));
-        click_data->app = app;
-        click_data->year = greg_year;
-        click_data->month = greg_month;
-        click_data->day = greg_day;
-        
-        // Store the click data as object data on the event box so it will be freed when the widget is destroyed
-        g_object_set_data_full(G_OBJECT(event_box), "click-data", click_data, g_free);
-        
-        // Connect to the button-press-event signal with the click data
-        g_signal_connect(event_box, "button-press-event", G_CALLBACK(on_day_clicked), NULL);
-        
-        // Set tooltip with full information
-        gtk_widget_set_tooltip_text(day_frame, day_cell->tooltip_text);
-        
-        // If this is a day from the next month, make it visually distinct (faded)
-        if (is_next_month) {
-            // Create a style context for faded appearance
-            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
-            
-            // Add opacity to the frame
-            gtk_widget_set_opacity(day_frame, 0.35);  // Make it much more faded (35% opacity)
-            
-            // Make the text lighter
-            gtk_widget_set_opacity(day_number, 0.5);
-            if (greg_date) {
-                gtk_widget_set_opacity(greg_date, 0.5);
+            // Lunar day number (primary display)
+            char day_str[10];
+            snprintf(day_str, sizeof(day_str), "%d", cell->lunar_day);
+            GtkWidget* day_number = gtk_label_new(day_str);
+            gtk_widget_set_halign(day_number, GTK_ALIGN_START);
+            gtk_box_pack_start(GTK_BOX(day_box), day_number, FALSE, FALSE, 0);
+
+            // Show Gregorian date if enabled
+            if (app->config && app->config->show_gregorian_dates) {
+                char greg_str[32];
+                snprintf(greg_str, sizeof(greg_str), "%04d-%02d-%02d", 
+                         cell->greg_year, cell->greg_month, cell->greg_day);
+                GtkWidget* greg_date = gtk_label_new(greg_str);
+                 PangoAttrList* attrs = pango_attr_list_new();
+                 pango_attr_list_insert(attrs, pango_attr_scale_new(PANGO_SCALE_SMALL));
+                 gtk_label_set_attributes(GTK_LABEL(greg_date), attrs);
+                 pango_attr_list_unref(attrs);
+                gtk_widget_set_halign(greg_date, GTK_ALIGN_START);
+                gtk_box_pack_start(GTK_BOX(day_box), greg_date, FALSE, FALSE, 0);
             }
-            gtk_widget_set_opacity(moon_phase, 0.5);
-            
-            // Add a subtle border
-            gtk_style_context_add_class(context, "next-month-day");
+
+            // Add moon phase if enabled
+            if (app->config && app->config->show_moon_phases) {
+                 GtkWidget* moon_label = gtk_label_new(calendar_adapter_get_unicode_moon(cell->moon_phase));
+                 gtk_widget_set_halign(moon_label, GTK_ALIGN_START);
+                 gtk_box_pack_start(GTK_BOX(day_box), moon_label, FALSE, FALSE, 0);
+            }
+
+            // Add event indicator if needed
+            if (event_date_has_events(cell->greg_year, cell->greg_month, cell->greg_day)) {
+                GtkWidget* event_indicator = gtk_label_new("📅");
+                gtk_widget_set_halign(event_indicator, GTK_ALIGN_START);
+                gtk_box_pack_start(GTK_BOX(day_box), event_indicator, FALSE, FALSE, 0);
+            }
+
+            // Make the event box clickable
+            gtk_widget_add_events(event_box, GDK_BUTTON_PRESS_MASK);
+            DayClickData* click_data = g_malloc(sizeof(DayClickData));
+            click_data->app = app;
+            click_data->year = cell->greg_year;
+            click_data->month = cell->greg_month;
+            click_data->day = cell->greg_day;
+            g_object_set_data_full(G_OBJECT(event_box), "click-data", click_data, g_free);
+            g_signal_connect(event_box, "button-press-event", G_CALLBACK(on_day_clicked), NULL);
+
+            // Set tooltip
+            char* tooltip = calendar_adapter_get_tooltip_for_day(cell);
+            gtk_widget_set_tooltip_text(day_frame, tooltip);
+            g_free(tooltip); // Free the tooltip string returned by the adapter
+
+            // Apply highlighting based on cell properties and config
+            if (app->config && app->config->highlight_special_days && cell->is_special_day) {
+                gtk_style_context_add_class(style_context, "special-day");
+                GtkCssProvider* provider = gtk_css_provider_new();
+                GdkRGBA color;
+                calendar_adapter_get_special_day_color(cell->special_day_type, &color);
+                char css[256];
+                snprintf(css, sizeof(css), 
+                        ".special-day { background-color: rgba(%d, %d, %d, %f); }",
+                        (int)(color.red * 255), (int)(color.green * 255), 
+                        (int)(color.blue * 255), color.alpha);
+                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+                gtk_style_context_add_provider(style_context, 
+                                            GTK_STYLE_PROVIDER(provider), 
+                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+                g_object_unref(provider);
+            }
+
+            // Event color override
+            GdkRGBA event_color;
+            if (event_get_date_color(cell->greg_year, cell->greg_month, cell->greg_day, &event_color)) {
+                gtk_style_context_add_class(style_context, "event-day");
+                GtkCssProvider* provider = gtk_css_provider_new();
+                char css[256];
+                snprintf(css, sizeof(css), 
+                        ".event-day { background-color: rgba(%d, %d, %d, %f); }",
+                        (int)(event_color.red * 255), (int)(event_color.green * 255), 
+                        (int)(event_color.blue * 255), event_color.alpha);
+                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+                gtk_style_context_add_provider(style_context, 
+                                            GTK_STYLE_PROVIDER(provider), 
+                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+                g_object_unref(provider);
+            }
+
+            // Highlight today
+            if (cell->is_today) {
+                gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_IN);
+                gtk_style_context_add_class(style_context, "today-cell"); // Add a class for CSS styling
+                // GtkWidget* today_label = gtk_label_new("Today");
+                // gtk_widget_set_halign(today_label, GTK_ALIGN_START);
+                // gtk_box_pack_start(GTK_BOX(day_box), today_label, FALSE, FALSE, 0);
+            }
+
+            // Highlight selected day
+            if (cell->greg_year == app->selected_day_year && 
+                cell->greg_month == app->selected_day_month && 
+                cell->greg_day == app->selected_day_day) {
+                gtk_style_context_add_class(style_context, "selected-day");
+                GtkCssProvider* provider = gtk_css_provider_new();
+                const char* css = ".selected-day { border: 2px solid #3584e4; background-color: rgba(53, 132, 228, 0.3); }";
+                gtk_css_provider_load_from_data(provider, css, -1, NULL);
+                gtk_style_context_add_provider(style_context, 
+                                            GTK_STYLE_PROVIDER(provider), 
+                                            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+                g_object_unref(provider);
+                gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_OUT);
+            }
         }
-        
-        // Highlight special days if configured
-        if (app->config && app->config->highlight_special_days && day_cell->is_special_day) {
-            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
-            gtk_style_context_add_class(context, "special-day");
-            
-            // Add custom CSS for the special day
-            GtkCssProvider* provider = gtk_css_provider_new();
-            GdkRGBA color;
-            calendar_adapter_get_special_day_color(day_cell->special_day_type, &color);
-            
-            char css[256];
-            snprintf(css, sizeof(css), 
-                    ".special-day { background-color: rgba(%d, %d, %d, %f); }",
-                    (int)(color.red * 255), (int)(color.green * 255), 
-                    (int)(color.blue * 255), color.alpha);
-                    
-            gtk_css_provider_load_from_data(provider, css, -1, NULL);
-            gtk_style_context_add_provider(context, 
-                                        GTK_STYLE_PROVIDER(provider), 
-                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-            g_object_unref(provider);
-        }
-        
-        // Check for custom event color
-        GdkRGBA event_color;
-        if (event_get_date_color(greg_year, greg_month, greg_day, &event_color)) {
-            // Apply custom event color using CSS
-            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
-            gtk_style_context_add_class(context, "event-day");
-            
-            GtkCssProvider* provider = gtk_css_provider_new();
-            char css[256];
-            snprintf(css, sizeof(css), 
-                    ".event-day { background-color: rgba(%d, %d, %d, %f); }",
-                    (int)(event_color.red * 255), (int)(event_color.green * 255), 
-                    (int)(event_color.blue * 255), event_color.alpha);
-                    
-            gtk_css_provider_load_from_data(provider, css, -1, NULL);
-            gtk_style_context_add_provider(context, 
-                                        GTK_STYLE_PROVIDER(provider), 
-                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-            g_object_unref(provider);
-        }
-        
-        // Highlight today's date
-        if (day_cell->is_today) {
-            gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_IN);
-            GtkWidget* today_label = gtk_label_new("Today");
-            gtk_widget_set_halign(today_label, GTK_ALIGN_START);
-            gtk_box_pack_start(GTK_BOX(day_box), today_label, FALSE, FALSE, 0);
-        }
-        
-        // Highlight selected day (if any)
-        if (greg_year == app->selected_day_year && 
-            greg_month == app->selected_day_month && 
-            greg_day == app->selected_day_day) {
-            GtkStyleContext* context = gtk_widget_get_style_context(day_frame);
-            gtk_style_context_add_class(context, "selected-day");
-            
-            // Apply bold styling to selected day using CSS
-            GtkCssProvider* provider = gtk_css_provider_new();
-            const char* css = ".selected-day { border: 2px solid #3584e4; background-color: rgba(53, 132, 228, 0.3); }";
-            gtk_css_provider_load_from_data(provider, css, -1, NULL);
-            gtk_style_context_add_provider(context, 
-                                        GTK_STYLE_PROVIDER(provider), 
-                                        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-            g_object_unref(provider);
-            
-            gtk_frame_set_shadow_type(GTK_FRAME(day_frame), GTK_SHADOW_ETCHED_OUT);
-        }
-        
+
         // Add the day cell to the grid
-        gtk_grid_attach(GTK_GRID(app->calendar_view), day_frame, col, row, 1, 1);
-        
-        // Free the day cell (but not the tooltip text which is used by GTK)
-        day_cell->tooltip_text = NULL; // Will be freed by GTK
-        g_free(day_cell);
-        
-        // Move to the next day
-        // Update the Gregorian date
-        int days_in_greg_month = 31;
-        if (current_date_in_month.month == 4 || current_date_in_month.month == 6 || 
-            current_date_in_month.month == 9 || current_date_in_month.month == 11) {
-            days_in_greg_month = 30;
-        } else if (current_date_in_month.month == 2) {
-            days_in_greg_month = is_gregorian_leap_year(current_date_in_month.year) ? 29 : 28;
-        }
-        
-        current_date_in_month.day++;
-        if (current_date_in_month.day > days_in_greg_month) {
-            current_date_in_month.day = 1;
-            current_date_in_month.month++;
-            if (current_date_in_month.month > 12) {
-                current_date_in_month.month = 1;
-                current_date_in_month.year++;
-            }
-        }
-        
-        // Move to the next cell
-        col++;
-        if (col > 6) {
-            col = 0;
-            row++;
-        }
+        gtk_grid_attach(GTK_GRID(calendar_grid), day_frame, col, row, 1, 1);
     }
-    
+
+    // Free the model now that the grid is built
+    calendar_adapter_free_model(model);
+
     // Show all the widgets
     gtk_widget_show_all(app->calendar_view);
 }
@@ -896,9 +639,10 @@ static void on_prev_month(GtkWidget* widget, gpointer data) {
     app->current_month--;
     if (app->current_month < 1) {
         app->current_year--;
-        /* Check if previous year is a leap year with 13 months */
-        int month_count = count_lunar_months_in_year(app->current_year);
-        app->current_month = (month_count == 13) ? 13 : 12;
+        /* Check number of months in the *new* previous year */
+        // Use the corrected backend function
+        int month_count = get_lunar_months_in_year(app->current_year); 
+        app->current_month = month_count; // Wrap to 12 or 13
     }
     
     /* Update display */
@@ -909,13 +653,14 @@ static void on_prev_month(GtkWidget* widget, gpointer data) {
 static void on_next_month(GtkWidget* widget, gpointer data) {
     LunarCalendarApp* app = (LunarCalendarApp*)data;
     
-    /* Check if current year is a leap year with 13 months */
-    int month_count = count_lunar_months_in_year(app->current_year);
+    /* Check number of months in *current* year */
+    // Use the corrected backend function
+    int month_count = get_lunar_months_in_year(app->current_year);
     
     /* Go to next month */
     app->current_month++;
     if (app->current_month > month_count) {
-        app->current_month = 1;
+        app->current_month = 1; // Wrap to month 1
         app->current_year++;
     }
     
@@ -934,6 +679,16 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
         gtk_window_get_size(GTK_WINDOW(app->window), &width, &height);
         app->config->window_width = width;
         app->config->window_height = height;
+        
+        // Save configuration
+        if (app->config_file_path) {
+            config_save(app->config_file_path, app->config);
+        }
+    }
+    
+    // Save events
+    if (app && app->events_file_path) {
+        events_save(app->events_file_path);
     }
     
     // Clean up any other resources that need to be freed
@@ -945,9 +700,11 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
         }
         g_list_free(children);
     }
+    
+    // Ensure we quit the main loop
+    gtk_main_quit();
 }
 
-/* Update the sidebar with current date information */
 /* Update the sidebar with current date information including a wireframe moon phase */
 static void update_sidebar(LunarCalendarApp* app) {
     // Clear existing widgets
@@ -985,18 +742,19 @@ static void update_sidebar(LunarCalendarApp* app) {
     gtk_box_pack_start(GTK_BOX(vbox), eld_year_label, FALSE, FALSE, 5);
     
     // Add a label for the currently displayed Eld Year
-    LunarDay displayed_lunar_day = gregorian_to_lunar(app->current_year, app->current_month, 1);
+    LunarDay displayed_lunar_day_info = gregorian_to_lunar(app->current_year, app->current_month, 1);
     char displayed_eld_year_str[128];
     snprintf(displayed_eld_year_str, sizeof(displayed_eld_year_str), 
-             "Displayed Eld Year: %d", displayed_lunar_day.eld_year);
+             "Displayed Eld Year: %d", displayed_lunar_day_info.eld_year);
     GtkWidget* displayed_eld_label = gtk_label_new(displayed_eld_year_str);
     gtk_box_pack_start(GTK_BOX(vbox), displayed_eld_label, FALSE, FALSE, 5);
     
-    // Add a large wireframe moon showing current phase
-    GdkPixbuf* moon_pixbuf = create_moon_phase_icon(lunar_day.moon_phase, 150);
-    GtkWidget* moon_image = gtk_image_new_from_pixbuf(moon_pixbuf);
-    g_object_unref(moon_pixbuf);
-    gtk_box_pack_start(GTK_BOX(vbox), moon_image, FALSE, FALSE, 10);
+    // Add a drawing area for the moon phase
+    GtkWidget* moon_drawing_area = gtk_drawing_area_new();
+    gtk_widget_set_size_request(moon_drawing_area, 150, 150); // Set desired size
+    g_object_set_data(G_OBJECT(moon_drawing_area), "moon-phase", GINT_TO_POINTER(lunar_day.moon_phase));
+    g_signal_connect(G_OBJECT(moon_drawing_area), "draw", G_CALLBACK(draw_moon_phase_cairo), NULL);
+    gtk_box_pack_start(GTK_BOX(vbox), moon_drawing_area, FALSE, FALSE, 10);
     
     // Add a label for the moon phase name
     GtkWidget* phase_label = gtk_label_new(calendar_adapter_get_moon_phase_name(lunar_day.moon_phase));
@@ -1484,7 +1242,7 @@ static void update_month_label(LunarCalendarApp* app) {
         }
         
         // Add the month count and check if this is a 13-month year
-        int month_count = count_lunar_months_in_year(app->current_year);
+        int month_count = get_lunar_months_in_year(app->current_year);
         char year_info[50];
         sprintf(year_info, "(%d-Month Year)", month_count);
         
@@ -1772,4 +1530,98 @@ static void on_settings_clicked(GtkButton* button, gpointer user_data) {
         // Settings were changed and saved
         update_ui_from_config(app);
     }
+}
+
+// Cairo drawing function for the moon phase
+static gboolean draw_moon_phase_cairo(GtkWidget *widget, cairo_t *cr, gpointer data) {
+    MoonPhase phase = (MoonPhase)GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "moon-phase"));
+    guint width = gtk_widget_get_allocated_width(widget);
+    guint height = gtk_widget_get_allocated_height(widget);
+    double radius = MIN(width, height) / 2.0 - 5.0; // Radius with padding
+    double center_x = width / 2.0;
+    double center_y = height / 2.0;
+
+    // Draw background (optional, useful for transparent themes)
+    // cairo_set_source_rgba(cr, 0.1, 0.1, 0.1, 0.8);
+    // cairo_paint(cr);
+
+    // --- Draw Moon Outline --- 
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0); // White
+    cairo_set_line_width(cr, 2.0);
+    cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
+    cairo_stroke_preserve(cr); // Keep path for potential fill
+
+    // --- Calculate Illumination --- 
+    double illumination_fraction = 0.0;
+    gboolean waxing = TRUE; // True if waxing (right side lit), False if waning (left side lit)
+
+    switch (phase) {
+        case NEW_MOON:        illumination_fraction = 0.0; break;
+        case WAXING_CRESCENT: illumination_fraction = 0.25; waxing = TRUE; break;
+        case FIRST_QUARTER:   illumination_fraction = 0.5;  waxing = TRUE; break;
+        case WAXING_GIBBOUS:  illumination_fraction = 0.75; waxing = TRUE; break;
+        case FULL_MOON:       illumination_fraction = 1.0; break;
+        case WANING_GIBBOUS:  illumination_fraction = 0.75; waxing = FALSE; break;
+        case LAST_QUARTER:    illumination_fraction = 0.5;  waxing = FALSE; break;
+        case WANING_CRESCENT: illumination_fraction = 0.25; waxing = FALSE; break;
+        default:              illumination_fraction = 0.0; break;
+    }
+
+    // --- Draw Illuminated Portion --- 
+    if (illumination_fraction == 1.0) { // Full Moon
+        cairo_fill(cr); // Fill the preserved outline path
+    } else if (illumination_fraction > 0.0) { // Partially illuminated
+        // Use clipping to draw illuminated part
+        cairo_save(cr);
+
+        if (illumination_fraction == 0.5) { // Quarters
+            if (waxing) { // First Quarter (right half lit)
+                cairo_rectangle(cr, center_x, center_y - radius - 2, radius + 2, 2 * radius + 4);
+            } else { // Last Quarter (left half lit)
+                cairo_rectangle(cr, center_x - radius - 2, center_y - radius - 2, radius + 2, 2 * radius + 4);
+            }
+            cairo_clip(cr);
+            cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
+            cairo_fill(cr);
+
+        } else { // Crescent or Gibbous
+            // Calculate the horizontal shift of the terminator ellipse center
+            // x = radius * cos(angle), angle depends on phase fraction
+            // Simplified: map fraction (0..1) to angle (PI..0 for waxing, 0..PI for waning)
+            double angle = acos(1.0 - 2.0 * illumination_fraction);
+            double x_offset = radius * cos(angle);
+            if (!waxing) x_offset = -x_offset;
+
+            // Clip to the main circle boundary first
+            cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
+            cairo_clip(cr);
+
+            if ( (waxing && illumination_fraction < 0.5) || (!waxing && illumination_fraction < 0.5) ) { // Crescent
+                // Draw the lit part (overlap of two circles)
+                if (waxing) { // Right side lit
+                     cairo_arc(cr, center_x + x_offset, center_y, radius, 0, 2 * M_PI);
+                } else { // Left side lit
+                    cairo_arc(cr, center_x + x_offset, center_y, radius, 0, 2 * M_PI);
+                }
+                cairo_fill(cr);
+            } else { // Gibbous
+                 // Fill the main circle first
+                 cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
+                 cairo_fill(cr);
+                 
+                 // Then draw the dark part (overlap)
+                 cairo_set_source_rgb(cr, 0.0, 0.0, 0.0); // Black
+                 if (waxing) { // Dark on left
+                     cairo_arc(cr, center_x - x_offset, center_y, radius, 0, 2 * M_PI);
+                 } else { // Dark on right
+                    cairo_arc(cr, center_x - x_offset, center_y, radius, 0, 2 * M_PI);
+                 }
+                 cairo_fill(cr);
+            }
+        }
+        cairo_restore(cr); // Remove clipping
+    }
+    // If illumination is 0.0 (New Moon), only the outline is drawn.
+
+    return FALSE; // Indicate redraw not needed unless requested
 } 

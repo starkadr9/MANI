@@ -8,17 +8,18 @@
 #include "../../include/lunar_calendar.h"
 #include "../../include/lunar_renderer.h"
 #include "../../include/gui/gui_app.h"
+#include "../../include/gui/calendar_events.h"
 
 // Define M_PI if not available
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// Helper function to resolve function signature conflict
-static SpecialDayType get_special_day_for_lunar(LunarDay lunar_day) {
+// Helper function (unused, removed)
+/* static SpecialDayType get_special_day_for_lunar(LunarDay lunar_day) {
     // Call the actual implementation which accepts a LunarDay parameter
     return get_special_day_type(lunar_day);
-}
+} */
 
 // Moon phase icon names for GTK
 static const char* MOON_PHASE_ICONS[] = {
@@ -44,166 +45,18 @@ static const char* FALLBACK_MOON_PHASE_ICONS[] = {
     "weather-few-clouds-night-symbolic"  // WANING_CRESCENT
 };
 
-// Find full moon dates for a given year (fills an array with up to 15 full moon dates)
-int get_year_full_moons(int year, Date* full_moons, int max_moons) {
-    // Start searching from December of previous year to catch full moons near year boundary
-    Date current = { year-1, 12, 1 };
-    int moon_count = 0;
-    int last_full_moon_day = 0;  // Track days since last full moon to ensure proper spacing
-    
-    // Continue until we reach next year or find all the moons we can store
-    while (current.year <= year && moon_count < max_moons) {
-        // Check each day of the year for full moons
-        LunarDay lunar_day = gregorian_to_lunar(current.year, current.month, current.day);
-        
-        if (lunar_day.moon_phase == FULL_MOON) {
-            // Ensure we don't add full moons too close together (must be at least 25 days apart)
-            if (moon_count == 0 || last_full_moon_day >= 25) {
-                full_moons[moon_count].year = current.year;
-                full_moons[moon_count].month = current.month;
-                full_moons[moon_count].day = current.day;
-                moon_count++;
-                last_full_moon_day = 0;
-                
-                // Skip ahead ~25 days to avoid finding the same full moon
-                // but not too far to miss the next one
-                for (int i = 0; i < 25 && current.year <= year; i++) {
-                    if (current.day < 28) {
-                        current.day++;
-                    } else {
-                        current.day = 1;
-                        if (current.month < 12) {
-                            current.month++;
-                        } else {
-                            current.month = 1;
-                            current.year++;
-                        }
-                    }
-                    last_full_moon_day++;
-                }
-            } else {
-                // If this full moon is too close to previous, skip ahead just one day
-                if (current.day < 28) {
-                    current.day++;
-                } else {
-                    current.day = 1;
-                    if (current.month < 12) {
-                        current.month++;
-                    } else {
-                        current.month = 1;
-                        current.year++;
-                    }
-                }
-                last_full_moon_day++;
-            }
-        } else {
-            // Move to next day
-            if (current.day < 28) {
-                current.day++;
-            } else {
-                // Handle month end more carefully
-                int days_in_month = 31;
-                if (current.month == 4 || current.month == 6 || 
-                    current.month == 9 || current.month == 11) {
-                    days_in_month = 30;
-                } else if (current.month == 2) {
-                    days_in_month = is_gregorian_leap_year(current.year) ? 29 : 28;
-                }
-                
-                if (current.day < days_in_month) {
-                    current.day++;
-                } else {
-                    current.day = 1;
-                    if (current.month < 12) {
-                        current.month++;
-                    } else {
-                        current.month = 1;
-                        current.year++;
-                    }
-                }
-            }
-            last_full_moon_day++;
-        }
-    }
-    
-    // Verify the spacing between full moons (should be ~29.5 days)
-    for (int i = 1; i < moon_count; i++) {
-        int days = days_between(full_moons[i-1], full_moons[i]);
-        // If the spacing is too short or too long, adjust
-        if (days < 29 || days > 30) {
-            // Estimate the correct date (29.5 days after previous)
-            Date corrected = full_moons[i-1];
-            
-            // Add 29 days
-            for (int j = 0; j < 29; j++) {
-                if (corrected.day < 28) {
-                    corrected.day++;
-                } else {
-                    // Check month length
-                    int days_in_month = 31;
-                    if (corrected.month == 4 || corrected.month == 6 || 
-                        corrected.month == 9 || corrected.month == 11) {
-                        days_in_month = 30;
-                    } else if (corrected.month == 2) {
-                        days_in_month = is_gregorian_leap_year(corrected.year) ? 29 : 28;
-                    }
-                    
-                    if (corrected.day < days_in_month) {
-                        corrected.day++;
-                    } else {
-                        corrected.day = 1;
-                        if (corrected.month < 12) {
-                            corrected.month++;
-                        } else {
-                            corrected.month = 1;
-                            corrected.year++;
-                        }
-                    }
-                }
-            }
-            
-            // Use the corrected date
-            full_moons[i] = corrected;
-        }
-    }
-    
-    return moon_count;
-}
+// Default month names (fallback if config fails)
+static const char* default_month_names[] = {
+    "Month 1", "Month 2", "Month 3", "Month 4", "Month 5", "Month 6",
+    "Month 7", "Month 8", "Month 9", "Month 10", "Month 11", "Month 12", "Month 13"
+};
 
-// Compare two dates, returns:
-// -1 if a < b
-// 0 if a == b
-// 1 if a > b
-int compare_dates(Date a, Date b) {
-    if (a.year < b.year) return -1;
-    if (a.year > b.year) return 1;
-    if (a.month < b.month) return -1;
-    if (a.month > b.month) return 1;
-    if (a.day < b.day) return -1;
-    if (a.day > b.day) return 1;
-    return 0;
-}
-
-// Calculate days between two dates
-int days_between(Date start, Date end) {
-    // Use a simple Julian day calculation for this purpose
-    int a = (14 - start.month) / 12;
-    int y = start.year + 4800 - a;
-    int m = start.month + 12 * a - 3;
-    int jd_start = start.day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045;
-    
-    a = (14 - end.month) / 12;
-    y = end.year + 4800 - a;
-    m = end.month + 12 * a - 3;
-    int jd_end = end.day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045;
-    
-    return jd_end - jd_start;
-}
-
-// Get Germanic lunar day info for a specific date (starting with full moons)
-CalendarDayCell* calendar_adapter_get_germanic_day_info(int year, int month, int day) {
+// Get all necessary display information for a specific Gregorian date cell.
+// This relies entirely on the backend gregorian_to_lunar function.
+CalendarDayCell* calendar_adapter_get_day_info(int year, int month, int day) {
     CalendarDayCell* cell = g_malloc0(sizeof(CalendarDayCell));
     if (!cell) {
+        perror("Failed to allocate CalendarDayCell");
         return NULL;
     }
     
@@ -212,617 +65,366 @@ CalendarDayCell* calendar_adapter_get_germanic_day_info(int year, int month, int
     cell->greg_month = month;
     cell->greg_day = day;
     
-    // Get today's date
-    time_t now = time(NULL);
-    struct tm* tm_now = localtime(&now);
+    // Get today's date for comparison
+    cell->is_today = calendar_adapter_is_today(year, month, day);
     
-    // Check if this is today
-    cell->is_today = (year == tm_now->tm_year + 1900 &&
-                     month == tm_now->tm_mon + 1 &&
-                     day == tm_now->tm_mday);
+    // Get *all* lunar date info from the refactored backend function
+    LunarDay lunar_day_info = gregorian_to_lunar(year, month, day);
     
-    // Get lunar date info
-    LunarDay lunar_day = gregorian_to_lunar(year, month, day);
+    // Populate cell from the LunarDay struct returned by the backend
+    cell->lunar_day = lunar_day_info.lunar_day;
+    cell->lunar_month = lunar_day_info.lunar_month;
+    cell->lunar_year = lunar_day_info.lunar_year; // This is the lunar year identifier
+    cell->moon_phase = lunar_day_info.moon_phase;
+    cell->weekday = lunar_day_info.weekday;
     
-    // Set lunar date
-    cell->lunar_day = lunar_day.lunar_day;
-    cell->lunar_month = lunar_day.lunar_month;
-    cell->lunar_year = lunar_day.lunar_year;
-    
-    // Set other properties
-    cell->moon_phase = lunar_day.moon_phase;
-    cell->weekday = lunar_day.weekday;
-    
-    // Create a Date structure for the current date
-    Date current_date = { year, month, day };
-    
-    // Get full moons for current year (and maybe some from previous/next year)
-    Date full_moons[15]; // Store up to 15 full moons
-    int moon_count = get_year_full_moons(year, full_moons, 15);
-    
-    // Find the full moon that starts the current lunar month
-    // (the last full moon before or on the current date)
-    int current_moon_index = -1;
-    for (int i = 0; i < moon_count; i++) {
-        if (compare_dates(full_moons[i], current_date) <= 0) {
-            current_moon_index = i;
-        } else {
-            break; // Found the first full moon after our date
-        }
-    }
-    
-    if (current_moon_index == -1 && moon_count > 0) {
-        // If we didn't find a full moon before our date, but we have full moons,
-        // then our date is before the first full moon of the year.
-        // Use the last full moon of the previous year (if available)
-        Date prev_full_moons[5];
-        int prev_moon_count = get_year_full_moons(year-1, prev_full_moons, 5);
-        if (prev_moon_count > 0) {
-            // Use the last full moon of the previous year
-            Date start_moon = prev_full_moons[prev_moon_count-1];
-            int days = days_between(start_moon, current_date);
-            cell->lunar_day = days + 1;  // Day 1 is the full moon day
-            cell->lunar_month = 12;  // Last month of previous year
-        } else {
-            // Fallback (shouldn't happen often)
-            cell->lunar_day = 1;
-            cell->lunar_month = 1;
-        }
-    } else if (current_moon_index >= 0 && current_moon_index < moon_count) {
-        // We found the full moon that starts our current lunar month
-        Date start_moon = full_moons[current_moon_index];
-        int days = days_between(start_moon, current_date);
-        cell->lunar_day = days + 1;  // Day 1 is the full moon day
-        
-        // Find winter solstice for current year
-        Date winter_solstice = { year, 12, 21 };
-        
-        // If we're before winter solstice, use last year's
-        if (month < 12 || (month == 12 && day < 21)) {
-            winter_solstice.year--;
-        }
-        
-        // Count how many full moons have occurred since the winter solstice
-        int month_number = 1;
-        for (int i = 0; i < moon_count; i++) {
-            if (compare_dates(full_moons[i], winter_solstice) > 0 && 
-                compare_dates(full_moons[i], current_date) <= 0) {
-                month_number++;
-            }
-        }
-        
-        cell->lunar_month = month_number;
-    } else {
-        // Fallback for edge cases
-        cell->lunar_day = 1;
-        cell->lunar_month = 1;
-    }
-    
-    // Set the lunar year
-    cell->lunar_year = year;
-    
-    // Check for special day
-    SpecialDayType special_day = get_special_day_for_lunar(lunar_day);
-    cell->is_special_day = (special_day != NORMAL_DAY);
-    cell->special_day_type = special_day;
-    
-    // Create tooltip text with Germanic lunar calendar information
-    char* tooltip = g_strdup_printf(
-        "Gregorian: %04d-%02d-%02d\n"
-        "Germanic Lunar: Month %d, Day %d\n"
-        "Moon Phase: %s\n"
-        "Weekday: %s\n"
-        "Eld Year: %d",
-        year, month, day,
-        cell->lunar_month, cell->lunar_day,
-        calendar_adapter_get_moon_phase_name(cell->moon_phase),
-        cell->weekday == SUNDAY ? "Sunday" :
-        cell->weekday == MONDAY ? "Monday" :
-        cell->weekday == TUESDAY ? "Tuesday" :
-        cell->weekday == WEDNESDAY ? "Wednesday" :
-        cell->weekday == THURSDAY ? "Thursday" :
-        cell->weekday == FRIDAY ? "Friday" :
-        cell->weekday == SATURDAY ? "Saturday" : "Unknown",
-        lunar_day.eld_year);
-    
-    cell->tooltip_text = tooltip;
-    
+    // Check for special days using the function from lunar_renderer
+    // (which should now use correct backend checks)
+    cell->special_day_type = get_special_day_type(lunar_day_info); 
+    cell->is_special_day = (cell->special_day_type != NORMAL_DAY);
+
+    // Check for events associated with this Gregorian date (unused here, checked in GUI)
+    // gboolean has_event = event_date_has_events(year, month, day);
+
+    // Tooltip: Generate dynamically when needed, don't store in cell struct
+    cell->tooltip_text = NULL; // Tooltip generated on demand by GUI code
+
+    // Validity check - lunar_day 0 might indicate error from backend
+    // The CalendarDayCell struct doesn't have an is_valid field either.
+    // The calling code (create_month_model) should handle potential errors from gregorian_to_lunar.
+
     return cell;
 }
 
 // Get the name for a moon phase
 const char* calendar_adapter_get_moon_phase_name(MoonPhase phase) {
-    // Get the application instance to access config
-    LunarCalendarApp* app = g_object_get_data(G_OBJECT(g_application_get_default()), "app_data");
-    
-    // When showing full moon and we have custom names
-    if (phase == FULL_MOON && app && app->config) {
-        // Determine which month's full moon we're displaying
-        time_t now;
-        time(&now);
-        struct tm* tm_now = localtime(&now);
-        int current_month = tm_now->tm_mon; // 0-based month (0=Jan, 11=Dec)
-        
-        // If we have a custom name for this month's full moon, use it
-        if (app->config->custom_full_moon_names[current_month] && 
-            strlen(app->config->custom_full_moon_names[current_month]) > 0) {
-            return app->config->custom_full_moon_names[current_month];
-        }
-        
-        // Otherwise, return the default full moon name
-        const char* default_moon_names[] = {
-            "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon",
-            "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
-            "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon"
-        };
-        return default_moon_names[current_month];
-    }
-    
-    // For other moon phases, return standard name
     switch (phase) {
-        case NEW_MOON: return "New Moon";
+        case NEW_MOON:        return "New Moon";
         case WAXING_CRESCENT: return "Waxing Crescent";
-        case FIRST_QUARTER: return "First Quarter";
-        case WAXING_GIBBOUS: return "Waxing Gibbous";
-        case FULL_MOON: return "Full Moon"; // Fallback if customization failed
-        case WANING_GIBBOUS: return "Waning Gibbous";
-        case LAST_QUARTER: return "Last Quarter";
+        case FIRST_QUARTER:   return "First Quarter";
+        case WAXING_GIBBOUS:  return "Waxing Gibbous";
+        case FULL_MOON:       return "Full Moon";
+        case WANING_GIBBOUS:  return "Waning Gibbous";
+        case LAST_QUARTER:    return "Last Quarter";
         case WANING_CRESCENT: return "Waning Crescent";
-        default: return "Unknown";
+        default:              return "Unknown Phase";
     }
 }
 
-/* Get a text label for the specified moon phase */
-const char* get_moon_phase_name(MoonPhase phase) {
-    switch (phase) {
-        case NEW_MOON:
-            return "New Moon";
-        case WAXING_CRESCENT:
-            return "Waxing Crescent";
-        case FIRST_QUARTER:
-            return "First Quarter";
-        case WAXING_GIBBOUS:
-            return "Waxing Gibbous";
-        case FULL_MOON:
-            return "Full Moon";
-        case WANING_GIBBOUS:
-            return "Waning Gibbous";
-        case LAST_QUARTER:
-            return "Last Quarter";
-        case WANING_CRESCENT:
-            return "Waning Crescent";
-        default:
-            return "Unknown";
-    }
-}
-
-// Get an icon for a moon phase (simple text version)
+// Get the icon name for a moon phase
 GtkWidget* calendar_adapter_get_moon_phase_icon(MoonPhase phase) {
-    // Create a text representation instead of icon
-    const char* phase_symbol = "●"; // Default full circle
-    
-    switch (phase) {
-        case NEW_MOON:
-            phase_symbol = "○";  // Empty circle
-            break;
-        case WAXING_CRESCENT:
-            phase_symbol = "◑";  // Half circle
-            break;
-        case FIRST_QUARTER:
-            phase_symbol = "◑";  // Half circle
-            break;
-        case WAXING_GIBBOUS:
-            phase_symbol = "◕";  // Almost full circle
-            break;
-        case FULL_MOON:
-            phase_symbol = "●";  // Full circle
-            break;
-        case WANING_GIBBOUS:
-            phase_symbol = "◕";  // Almost full circle
-            break;
-        case LAST_QUARTER:
-            phase_symbol = "◐";  // Half circle
-            break;
-        case WANING_CRESCENT:
-            phase_symbol = "◐";  // Half circle
-            break;
-        default:
-            phase_symbol = "?";
-            break;
+    if (phase < NEW_MOON || phase > WANING_CRESCENT) phase = NEW_MOON;
+    GtkIconTheme* icon_theme = gtk_icon_theme_get_default();
+    GtkWidget* image = NULL;
+    if (gtk_icon_theme_has_icon(icon_theme, MOON_PHASE_ICONS[phase])) {
+        image = gtk_image_new_from_icon_name(MOON_PHASE_ICONS[phase], GTK_ICON_SIZE_BUTTON);
+    } else if (gtk_icon_theme_has_icon(icon_theme, FALLBACK_MOON_PHASE_ICONS[phase])) {
+        image = gtk_image_new_from_icon_name(FALLBACK_MOON_PHASE_ICONS[phase], GTK_ICON_SIZE_BUTTON);
+    } else {
+        image = gtk_image_new_from_icon_name("image-missing-symbolic", GTK_ICON_SIZE_BUTTON);
+        fprintf(stderr, "Warning: Missing moon phase icon: %s and fallback %s\n", 
+                MOON_PHASE_ICONS[phase], FALLBACK_MOON_PHASE_ICONS[phase]);
     }
-    
-    // Create a label with the phase symbol in a large font
-    GtkWidget* label = gtk_label_new(phase_symbol);
-    PangoAttrList* attrs = pango_attr_list_new();
-    pango_attr_list_insert(attrs, pango_attr_scale_new(2.0));  // Make it larger
-    gtk_label_set_attributes(GTK_LABEL(label), attrs);
-    pango_attr_list_unref(attrs);
-    
-    return label;
+    if (image) gtk_widget_set_tooltip_text(image, calendar_adapter_get_moon_phase_name(phase));
+    return image;
 }
 
-/* Create a simple wireframe moon phase icon - specifically for the sidebar */
+// Create a GdkPixbuf for the moon phase icon
 GdkPixbuf* create_moon_phase_icon(MoonPhase phase, int size) {
-    // Create a new Cairo surface
-    cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
-    cairo_t* cr = cairo_create(surface);
+    // Check bounds
+    if (phase < NEW_MOON || phase > WANING_CRESCENT) {
+        phase = NEW_MOON; // Default
+    }
+
+    GtkIconTheme* icon_theme = gtk_icon_theme_get_default();
+    GError* error = NULL;
+    GdkPixbuf* pixbuf = NULL;
+
+    // Try themed icon first
+    if (gtk_icon_theme_has_icon(icon_theme, MOON_PHASE_ICONS[phase])) {
+        pixbuf = gtk_icon_theme_load_icon(icon_theme, MOON_PHASE_ICONS[phase], size, GTK_ICON_LOOKUP_USE_BUILTIN, &error);
+    } 
     
-    // Clear the background
-    cairo_set_source_rgba(cr, 0, 0, 0, 0);
-    cairo_paint(cr);
-    
-    // Center and radius
-    double center_x = size / 2.0;
-    double center_y = size / 2.0;
-    double radius = (size / 2.0) * 0.8; // Slightly smaller than half the size
-    
-    // Set line width based on size
-    cairo_set_line_width(cr, size / 40.0);
-    
-    // Draw the dark part of the moon based on phase
-    cairo_set_source_rgba(cr, 0.1, 0.1, 0.1, 0.6); // Dark gray
-    
-    switch (phase) {
-        case NEW_MOON:
-            // New moon - entire circle is dark
-            cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
-            cairo_fill(cr);
-            break;
-            
-        case WAXING_CRESCENT:
-            // Waxing crescent - right side illuminated (25%)
-            cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
-            cairo_fill(cr);
-            
-            // Cut out the illuminated part
-            cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
-            cairo_move_to(cr, center_x, center_y);
-            cairo_arc(cr, center_x, center_y, radius, -M_PI/4, M_PI/4);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-            cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-            break;
-            
-        case FIRST_QUARTER:
-            // First quarter - left half dark
-            cairo_move_to(cr, center_x, center_y - radius);
-            cairo_arc(cr, center_x, center_y, radius, 3*M_PI/2, M_PI/2);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-            break;
-            
-        case WAXING_GIBBOUS:
-            // Waxing gibbous - left side dark (25%)
-            cairo_move_to(cr, center_x, center_y - radius);
-            cairo_arc(cr, center_x, center_y, radius, 3*M_PI/4, 5*M_PI/4);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-            break;
-            
-        case FULL_MOON:
-            // Full moon - no dark part
-            break;
-            
-        case WANING_GIBBOUS:
-            // Waning gibbous - right side dark (25%)
-            cairo_move_to(cr, center_x, center_y - radius);
-            cairo_arc(cr, center_x, center_y, radius, -M_PI/4, M_PI/4);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-            break;
-            
-        case LAST_QUARTER:
-            // Last quarter - right half dark
-            cairo_move_to(cr, center_x, center_y - radius);
-            cairo_arc(cr, center_x, center_y, radius, -M_PI/2, 3*M_PI/2);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-            break;
-            
-        case WANING_CRESCENT:
-            // Waning crescent - left side illuminated (25%)
-            cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
-            cairo_fill(cr);
-            
-            // Cut out the illuminated part
-            cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
-            cairo_move_to(cr, center_x, center_y);
-            cairo_arc(cr, center_x, center_y, radius, 3*M_PI/4, 5*M_PI/4);
-            cairo_close_path(cr);
-            cairo_fill(cr);
-            cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-            break;
+    // Try fallback icon if themed failed or doesn't exist
+    if (!pixbuf && gtk_icon_theme_has_icon(icon_theme, FALLBACK_MOON_PHASE_ICONS[phase])) {
+        g_clear_error(&error);
+        pixbuf = gtk_icon_theme_load_icon(icon_theme, FALLBACK_MOON_PHASE_ICONS[phase], size, GTK_ICON_LOOKUP_USE_BUILTIN, &error);
     }
     
-    // Draw the wireframe outline and grid
-    cairo_set_source_rgba(cr, 0.9, 0.9, 0.9, 0.9); // Light gray
-    
-    // Draw the main circle outline
-    cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
-    cairo_stroke(cr);
-    
-    // Vertical line
-    cairo_move_to(cr, center_x, center_y - radius);
-    cairo_line_to(cr, center_x, center_y + radius);
-    cairo_stroke(cr);
-    
-    // Horizontal line
-    cairo_move_to(cr, center_x - radius, center_y);
-    cairo_line_to(cr, center_x + radius, center_y);
-    cairo_stroke(cr);
-    
-    // Convert to pixbuf
-    GdkPixbuf* pixbuf = gdk_pixbuf_get_from_surface(surface, 0, 0, size, size);
-    
-    // Clean up
-    cairo_destroy(cr);
-    cairo_surface_destroy(surface);
-    
+    // If all else fails, use a placeholder
+    if (!pixbuf) {
+        g_clear_error(&error);
+        pixbuf = gtk_icon_theme_load_icon(icon_theme, "image-missing-symbolic", size, GTK_ICON_LOOKUP_USE_BUILTIN, &error);
+        g_warning("Missing moon phase icon: %s and fallback %s. Using placeholder.", 
+                  MOON_PHASE_ICONS[phase], FALLBACK_MOON_PHASE_ICONS[phase]);
+    }
+
+    if (error) {
+        g_warning("Error loading moon phase icon: %s", error->message);
+        g_error_free(error);
+        // Return the placeholder if an error occurred during loading
+        if (pixbuf) g_object_unref(pixbuf);
+        pixbuf = gtk_icon_theme_load_icon(icon_theme, "image-missing-symbolic", size, GTK_ICON_LOOKUP_USE_BUILTIN, NULL);
+    }
+
     return pixbuf;
 }
 
 // Get the color for a special day type
 void calendar_adapter_get_special_day_color(SpecialDayType type, GdkRGBA* color) {
-    // Default to transparent (no color)
-    color->red = 1.0;
-    color->green = 1.0;
-    color->blue = 1.0;
-    color->alpha = 0.0;
-    
+    // Colors defined as constants for clarity
+    const GdkRGBA C_TODAY = {0.8, 0.9, 1.0, 0.8}; // Light Blue, less transparent
+    const GdkRGBA C_NEW_MOON = {0.9, 0.9, 0.9, 0.6}; // Light Grey
+    const GdkRGBA C_FULL_MOON = {1.0, 1.0, 0.8, 0.7}; // Light Yellow
+    const GdkRGBA C_WINTER = {0.8, 1.0, 1.0, 0.6}; // Light Cyan
+    const GdkRGBA C_SPRING = {0.8, 1.0, 0.8, 0.6}; // Light Green
+    const GdkRGBA C_SUMMER = {1.0, 0.9, 0.8, 0.6}; // Light Orange/Red
+    const GdkRGBA C_FALL = {1.0, 0.85, 0.8, 0.6}; // Light Magenta/Orange
+    const GdkRGBA C_NEW_YEAR = {1.0, 0.8, 0.8, 0.7}; // Light Red
+    const GdkRGBA C_FESTIVAL = {0.9, 0.8, 1.0, 0.6}; // Light Purple
+    const GdkRGBA C_DEFAULT = {1.0, 1.0, 1.0, 0.0}; // Default (transparent)
+
     switch (type) {
-        case TODAY:
-            color->red = 0.6;
-            color->green = 0.8;
-            color->blue = 1.0;  // Light blue
-            color->alpha = 0.3;  // More transparent
-            break;
-        case NEW_MOON_DAY:
-            color->red = 0.7;
-            color->green = 0.7;
-            color->blue = 0.7;  // Light gray
-            color->alpha = 0.3;
-            break;
-        case FULL_MOON_DAY:
-            color->red = 1.0;
-            color->green = 1.0;
-            color->blue = 0.7;  // Light yellow
-            color->alpha = 0.4;
-            break;
-        case GERMANIC_NEW_YEAR_DAY:
-            color->red = 1.0;
-            color->green = 0.8;
-            color->blue = 0.8;  // Light red/pink
-            color->alpha = 0.4;
-            break;
-        case WINTER_SOLSTICE_DAY:
-            color->red = 0.8;
-            color->green = 1.0;
-            color->blue = 1.0;  // Light cyan
-            color->alpha = 0.3;
-            break;
-        case SPRING_EQUINOX_DAY:
-            color->red = 0.8;
-            color->green = 1.0;
-            color->blue = 0.8;  // Light green
-            color->alpha = 0.3;
-            break;
-        case SUMMER_SOLSTICE_DAY:
-            color->red = 1.0;
-            color->green = 0.9;
-            color->blue = 0.7;  // Light orange
-            color->alpha = 0.3;
-            break;
-        case FALL_EQUINOX_DAY:
-            color->red = 1.0;
-            color->green = 0.8;
-            color->blue = 1.0;  // Light purple
-            color->alpha = 0.3;
-            break;
-        case FESTIVAL_DAY:
-            color->red = 1.0;
-            color->green = 0.8;
-            color->blue = 1.0;  // Light purple
-            color->alpha = 0.3;
-            break;
+        case TODAY:                 *color = C_TODAY; break;
+        case NEW_MOON_DAY:          *color = C_NEW_MOON; break;
+        case FULL_MOON_DAY:         *color = C_FULL_MOON; break;
+        case GERMANIC_NEW_YEAR_DAY: *color = C_NEW_YEAR; break;
+        case WINTER_SOLSTICE_DAY:   *color = C_WINTER; break;
+        case SPRING_EQUINOX_DAY:    *color = C_SPRING; break;
+        case SUMMER_SOLSTICE_DAY:   *color = C_SUMMER; break;
+        case FALL_EQUINOX_DAY:      *color = C_FALL; break;
+        case FESTIVAL_DAY:          *color = C_FESTIVAL; break;
         case NORMAL_DAY:
-        default:
-            // Already set to transparent
-            break;
+        default:                    *color = C_DEFAULT; break;
     }
 }
 
 // Generate tooltip text for a calendar day
-char* calendar_adapter_get_tooltip_for_day(CalendarDayCell* day) {
-    if (!day) {
-        return NULL;
+char* calendar_adapter_get_tooltip_for_day(CalendarDayCell* cell) {
+    if (!cell) return NULL;
+    
+    // Get lunar date info (this might re-run conversion if not cached)
+    LunarDay lunar_day = gregorian_to_lunar(cell->greg_year, cell->greg_month, cell->greg_day);
+    
+    // Build the tooltip string
+    GString* tooltip = g_string_new(NULL);
+    g_string_append_printf(tooltip, "Gregorian: %04d-%02d-%02d\n", 
+                           cell->greg_year, cell->greg_month, cell->greg_day);
+    g_string_append_printf(tooltip, "Lunar: Yr %d, M %d, D %d\n", 
+                           cell->lunar_year, cell->lunar_month, cell->lunar_day);
+    g_string_append_printf(tooltip, "Eld Year: %d\n", lunar_day.eld_year); // Use from re-fetched data
+    g_string_append_printf(tooltip, "Phase: %s\n", calendar_adapter_get_moon_phase_name(cell->moon_phase));
+    g_string_append_printf(tooltip, "Weekday: %s",
+                           cell->weekday == SUNDAY ? "Sunday" :
+                           cell->weekday == MONDAY ? "Monday" :
+                           cell->weekday == TUESDAY ? "Tuesday" :
+                           cell->weekday == WEDNESDAY ? "Wednesday" :
+                           cell->weekday == THURSDAY ? "Thursday" :
+                           cell->weekday == FRIDAY ? "Friday" :
+                           cell->weekday == SATURDAY ? "Saturday" : "Unknown");
+                           
+    // Add special day info if applicable
+    if (cell->special_day_type != NORMAL_DAY) {
+        const char* special_name = "Special Day"; // Placeholder
+        switch(cell->special_day_type) {
+            case TODAY: special_name = "Today"; break;
+            case NEW_MOON_DAY: special_name = "New Moon"; break;
+            case FULL_MOON_DAY: special_name = "Full Moon"; break;
+            case GERMANIC_NEW_YEAR_DAY: special_name = "Lunar New Year"; break;
+            case WINTER_SOLSTICE_DAY: special_name = "Winter Solstice"; break;
+            case SPRING_EQUINOX_DAY: special_name = "Spring Equinox"; break;
+            case SUMMER_SOLSTICE_DAY: special_name = "Summer Solstice"; break;
+            case FALL_EQUINOX_DAY: special_name = "Fall Equinox"; break;
+            default: break;
+        }
+        g_string_append_printf(tooltip, "\n(%s)", special_name);
     }
     
-    // Build a detailed tooltip with all the day's information
-    char* tooltip = g_strdup_printf(
-        "Gregorian: %04d-%02d-%02d\n"
-        "Lunar: Year %d, Month %d, Day %d\n"
-        "Moon Phase: %s\n"
-        "Weekday: %s",
-        day->greg_year, day->greg_month, day->greg_day,
-        day->lunar_year, day->lunar_month, day->lunar_day,
-        calendar_adapter_get_moon_phase_name(day->moon_phase),
-        day->weekday == SUNDAY ? "Sunday" :
-        day->weekday == MONDAY ? "Monday" :
-        day->weekday == TUESDAY ? "Tuesday" :
-        day->weekday == WEDNESDAY ? "Wednesday" :
-        day->weekday == THURSDAY ? "Thursday" :
-        day->weekday == FRIDAY ? "Friday" :
-        day->weekday == SATURDAY ? "Saturday" : "Unknown"
-    );
-    
-    return tooltip;
+    // Add event info if applicable
+    EventList* events = event_get_for_date(cell->greg_year, cell->greg_month, cell->greg_day);
+    if (events && events->count > 0) {
+        g_string_append(tooltip, "\nEvents:");
+        for (int i = 0; i < events->count; i++) {
+            g_string_append_printf(tooltip, "\n- %s", events->events[i]->title);
+        }
+    }
+
+    return g_string_free(tooltip, FALSE);
 }
 
-// Check if the given date is today
+// Check if a given date is today
 gboolean calendar_adapter_is_today(int year, int month, int day) {
     time_t now = time(NULL);
     struct tm* tm_now = localtime(&now);
-    
     return (year == tm_now->tm_year + 1900 &&
             month == tm_now->tm_mon + 1 &&
             day == tm_now->tm_mday);
 }
 
-// Month names
-static const char* MONTH_NAMES[] = {
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December", "Thirteenth"
-};
-
-// Function to check if a year is a lunar leap year with 13 months
-int calendar_adapter_is_lunar_leap_year(int year) {
-    return count_lunar_months_in_year(year) == 13;
+// Check if a lunar year is a leap year
+int calendar_adapter_is_lunar_leap_year(int year_identifier) {
+    return is_lunar_leap_year(year_identifier);
 }
 
-// Get the number of months in a lunar year
-int calendar_adapter_get_months_in_year(int year) {
-    return count_lunar_months_in_year(year);
+// Get number of months in a lunar year
+int calendar_adapter_get_months_in_year(int year_identifier) {
+    return get_lunar_months_in_year(year_identifier);
 }
 
-// Create a calendar model for a specific month/year
-CalendarGridModel* calendar_adapter_create_month_model(int year, int month) {
+// Get Unicode character for a moon phase
+const char* calendar_adapter_get_unicode_moon(MoonPhase phase) {
+    switch (phase) {
+        case NEW_MOON:        return "🌑";
+        case WAXING_CRESCENT: return "🌒";
+        case FIRST_QUARTER:   return "🌓";
+        case WAXING_GIBBOUS:  return "🌔";
+        case FULL_MOON:       return "🌕";
+        case WANING_GIBBOUS:  return "🌖";
+        case LAST_QUARTER:    return "🌗";
+        case WANING_CRESCENT: return "🌘";
+        default:              return "⚫"; // Fallback: black circle
+    }
+}
+
+// Helper to get month name from config or default
+static const char* get_display_month_name(int month_num) {
+    if (month_num < 1 || month_num > 13) return "Invalid Month";
+    // Access config via global app data if needed (see gui_main.c)
+    // LunarCalendarApp* app = g_object_get_data(G_OBJECT(g_application_get_default()), "app_data");
+    // if (app && app->config && app->config->custom_month_names[month_num - 1] && strlen(app->config->custom_month_names[month_num - 1]) > 0)
+    //    return app->config->custom_month_names[month_num - 1];
+    // else
+         return default_month_names[month_num - 1]; // Use static default for now
+}
+
+// Create the data model for a specific lunar month
+CalendarGridModel* calendar_adapter_create_month_model(int year_identifier, int lunar_month) {
     CalendarGridModel* model = g_malloc0(sizeof(CalendarGridModel));
     if (!model) {
+        perror("Failed to allocate CalendarGridModel");
         return NULL;
     }
+
+    model->display_year = year_identifier;
+    model->display_month = lunar_month;
+    model->rows = 6; // Standard grid size
+    model->cols = 7;
+    model->days_in_month = 0; // Calculated below
+    model->first_day_weekday = SUNDAY; // Calculated below
+    model->cells = NULL;
+    model->month_name = NULL;
+    model->year_str = NULL;
+
+    // --- Calculate Month Boundaries and Length ---
+    double year_start_jd = calculate_lunar_new_year_jd(year_identifier);
+    if (year_start_jd == 0) goto model_error;
     
-    // Set basic properties
-    model->display_year = year;
-    model->display_month = month;
-    
-    // Determine if we're showing a Gregorian or lunar month
-    // For now, we'll just show Gregorian months
-    
-    // Get first day of month weekday
-    model->first_day_weekday = calculate_weekday(year, month, 1);
-    
-    // Calculate days in month (simplified for Gregorian calendar)
-    model->days_in_month = 31;
-    if (month == 4 || month == 6 || month == 9 || month == 11) {
-        model->days_in_month = 30;
-    } else if (month == 2) {
-        model->days_in_month = is_gregorian_leap_year(year) ? 29 : 28;
-    } else if (month == 13) {
-        // For the 13th month in a lunar leap year
-        model->days_in_month = 30; // Default to 30 days
-        
-        // Sanity check to ensure this is actually a leap year
-        if (!calendar_adapter_is_lunar_leap_year(year)) {
-            model->days_in_month = 0; // Invalid month
-        }
+    double month_start_jd = year_start_jd;
+    for (int m = 1; m < lunar_month; m++) {
+        month_start_jd = find_next_phase_jd(month_start_jd, 2); // Find start of month m+1
+        if (month_start_jd == 0) goto model_error;
     }
     
-    // Set up the grid dimensions
-    model->rows = 6;  // Maximum possible rows in a month view
-    model->cols = 7;  // Days of the week
+    double next_month_start_jd = find_next_phase_jd(month_start_jd, 2);
+    if (next_month_start_jd == 0) goto model_error;
     
-    // Allocate the grid cells
+    // Calculate exact length and clamp
+    model->days_in_month = (int)floor(next_month_start_jd - month_start_jd + 0.5); // Round to nearest day
+    if (model->days_in_month < 29) model->days_in_month = 29;
+    if (model->days_in_month > 30) model->days_in_month = 30;
+
+    // --- Determine Gregorian Date and Weekday of the First Day ---
+    int greg_y, greg_m, greg_d;
+    // Use the calculated month_start_jd (add 0.1 to avoid landing exactly on midnight?) 
+    // The JD should represent the start of the day.
+    double hour_unused;
+    julian_day_to_gregorian(month_start_jd, &greg_y, &greg_m, &greg_d, &hour_unused);
+    model->first_day_weekday = calculate_weekday(greg_y, greg_m, greg_d);
+
+    // --- Set Month and Year Strings ---
+    model->month_name = g_strdup(get_display_month_name(lunar_month));
+    model->year_str = g_strdup_printf("%d", year_identifier); // Use the identifier as the year string
+   
+    // --- Allocate and Populate Day Cells --- 
     model->cells = g_malloc0(sizeof(CalendarDayCell*) * model->rows * model->cols);
     if (!model->cells) {
-        g_free(model);
-        return NULL;
+        perror("Failed to allocate cells array in model");
+        goto model_error;
     }
-    
     // Initialize all cells to NULL
-    for (int i = 0; i < model->rows * model->cols; i++) {
-        model->cells[i] = NULL;
-    }
+    for (int i = 0; i < model->rows * model->cols; i++) model->cells[i] = NULL;
+
+    int current_greg_y = greg_y; 
+    int current_greg_m = greg_m;
+    int current_greg_d = greg_d;
+    int cell_row = 0;
+    int cell_col = model->first_day_weekday;
     
-    // Fill in the grid with actual day data
-    int row = 0;
-    int col = model->first_day_weekday;
-    
-    for (int day = 1; day <= model->days_in_month; day++) {
-        // Calculate the index in the flat array
-        int index = row * model->cols + col;
+    for (int i = 0; i < model->days_in_month; i++) {
+        int index = cell_row * model->cols + cell_col;
+        if (index < 0 || index >= model->rows * model->cols) {
+             fprintf(stderr, "Error: Cell index out of bounds (%d) for day %d\n", index, i + 1);
+             continue; // Skip this day if index is bad
+        }
+
+        // Get info for the current Gregorian date
+        model->cells[index] = calendar_adapter_get_day_info(current_greg_y, current_greg_m, current_greg_d);
+        if (!model->cells[index]) {
+            fprintf(stderr, "Error getting day info for %d-%d-%d (Lunar %d/%d/%d)\n", 
+                    current_greg_y, current_greg_m, current_greg_d, 
+                    year_identifier, lunar_month, i + 1);
+            // Create a placeholder? For now, leave NULL which GUI should handle
+        } else if (model->cells[index]->lunar_day == 0) {
+             fprintf(stderr, "Warning: Backend indicated error for %d-%d-%d (Lunar %d/%d/%d)\n", 
+                    current_greg_y, current_greg_m, current_greg_d, 
+                    year_identifier, lunar_month, i + 1);
+             // Mark cell as invalid? The struct doesn't have is_valid.
+             // GUI needs to handle potentially incomplete cells from backend errors.
+        }
         
-        // Create the cell
-        model->cells[index] = calendar_adapter_get_day_info(year, month, day);
+        // Advance Gregorian date by one day using JD
+        double current_jd = gregorian_to_julian_day(current_greg_y, current_greg_m, current_greg_d, 12.0);
+        double next_jd = current_jd + 1.0;
+        julian_day_to_gregorian(next_jd, &current_greg_y, &current_greg_m, &current_greg_d, &hour_unused);
         
-        // Move to the next cell
-        col++;
-        if (col >= 7) {
-            col = 0;
-            row++;
+        // Advance grid position
+        cell_col++;
+        if (cell_col >= model->cols) {
+            cell_col = 0;
+            cell_row++;
         }
     }
-    
-    // Set month and year strings
-    // For the 13th month, use a special name
-    if (month == 13) {
-        model->month_name = g_strdup("Thirteenth Month");
-    } else {
-        model->month_name = g_strdup(MONTH_NAMES[month - 1]);
-    }
-    model->year_str = g_strdup_printf("%d", year);
     
     return model;
-}
 
-// Free the calendar model
-void calendar_adapter_free_model(CalendarGridModel* model) {
-    if (!model) {
-        return;
-    }
-    
-    // Free all the cells
-    for (int i = 0; i < model->rows * model->cols; i++) {
-        if (model->cells[i]) {
-            g_free((void*)model->cells[i]->tooltip_text);
-            g_free(model->cells[i]);
+model_error:
+    fprintf(stderr, "Error creating calendar model for %d/%d\n", lunar_month, year_identifier);
+    // Clean up partially created model
+    if (model) {
+        if (model->cells) { // No need to free individual cells if allocation failed
+             g_free(model->cells);
         }
+        if (model->month_name) g_free(model->month_name);
+        if (model->year_str) g_free(model->year_str);
+        g_free(model);
     }
-    
-    // Free the cell array
-    g_free(model->cells);
-    
-    // Free strings
-    g_free(model->month_name);
-    g_free(model->year_str);
-    
-    // Free the model itself
-    g_free(model);
+    return NULL;
 }
 
-// Get lunar day info for a specific date
-CalendarDayCell* calendar_adapter_get_day_info(int year, int month, int day) {
-    CalendarDayCell* cell = g_malloc0(sizeof(CalendarDayCell));
-    if (!cell) {
-        return NULL;
+// Free the memory used by the grid model
+void calendar_adapter_free_model(CalendarGridModel* model) {
+    if (model) {
+        if (model->cells) {
+            for (int i = 0; i < model->rows * model->cols; i++) {
+                if (model->cells[i]) {
+                    // tooltip_text is not stored, no need to free
+                    g_free(model->cells[i]);
+                }
+            }
+            g_free(model->cells);
+        }
+        g_free(model->month_name);
+        g_free(model->year_str);
+        g_free(model);
     }
-    
-    // Set Gregorian date
-    cell->greg_year = year;
-    cell->greg_month = month;
-    cell->greg_day = day;
-    
-    // Get lunar date info
-    LunarDay lunar_day = gregorian_to_lunar(year, month, day);
-    
-    // Set lunar date
-    cell->lunar_day = lunar_day.lunar_day;
-    cell->lunar_month = lunar_day.lunar_month;
-    cell->lunar_year = lunar_day.lunar_year;
-    
-    // Set other properties
-    cell->moon_phase = lunar_day.moon_phase;
-    cell->weekday = lunar_day.weekday;
-    
-    // Check if this is today
-    cell->is_today = calendar_adapter_is_today(year, month, day);
-    
-    // Check for special day
-    SpecialDayType special_day = get_special_day_for_lunar(lunar_day);
-    cell->is_special_day = (special_day != NORMAL_DAY);
-    cell->special_day_type = special_day;
-    
-    // Create tooltip text
-    cell->tooltip_text = calendar_adapter_get_tooltip_for_day(cell);
-    
-    return cell;
 } 

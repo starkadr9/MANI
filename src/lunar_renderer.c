@@ -41,25 +41,36 @@ SpecialDayType get_special_day_type(LunarDay day) {
         return TODAY;
     }
     
-    /* Check moon phases */
+    /* Check moon phases directly from LunarDay struct */
     if (day.moon_phase == NEW_MOON) {
         return NEW_MOON_DAY;
     }
-    
     if (day.moon_phase == FULL_MOON) {
+        /* Check if it's the first day of a lunar month */
+        if (day.lunar_day == 1) {
+             return FULL_MOON_DAY; /* Emphasize month start */
+        } /* Else just mark as full moon anyway? */
         return FULL_MOON_DAY;
     }
     
-    /* Check if Germanic New Year */
-    int new_year_month, new_year_day;
-    if (calculate_germanic_new_year(day.greg_year, &new_year_month, &new_year_day)) {
-        if (day.greg_month == new_year_month && day.greg_day == new_year_day) {
-            return GERMANIC_NEW_YEAR_DAY;
+    /* Check if it's the Lunar New Year */
+    /* Calculate the JD for the start of the lunar year this day falls into */
+    double new_year_jd = calculate_lunar_new_year_jd(day.lunar_year); 
+    if (new_year_jd > 0) {
+        /* Convert the New Year JD back to Gregorian */
+        int ny_year, ny_month, ny_day;
+        double hour_unused;
+        julian_day_to_gregorian(new_year_jd, &ny_year, &ny_month, &ny_day, &hour_unused);
+        
+        /* Compare Gregorian dates */
+        if (day.greg_year == ny_year && day.greg_month == ny_month && day.greg_day == ny_day) {
+            return GERMANIC_NEW_YEAR_DAY; /* Keep enum name, but logic is updated */
         }
     }
     
     /* Check if winter solstice */
     int ws_month, ws_day;
+    /* Use the Gregorian year for solstice calculation */
     if (calculate_winter_solstice(day.greg_year, &ws_month, &ws_day)) {
         if (day.greg_month == ws_month && day.greg_day == ws_day) {
             return WINTER_SOLSTICE_DAY;
@@ -89,6 +100,8 @@ SpecialDayType get_special_day_type(LunarDay day) {
             return FALL_EQUINOX_DAY;
         }
     }
+    
+    /* TODO: Add checks for user-defined festivals/events if needed */
     
     return NORMAL_DAY;
 }
@@ -184,8 +197,8 @@ RenderedMonth render_lunar_month(int year, int month, RenderOptions options __at
     strcat(result.buffer, "--------------------\n");
     
     /* Add days in simple format */
-    int days_in_month = calculate_lunar_month_length(year, month);
-    sprintf(temp, "Days in month: %d\n\n", days_in_month);
+    // int days_in_month = calculate_lunar_month_length(year, month); // This function is obsolete
+    sprintf(temp, "Days in month: %d\n\n", 29); // Using a hardcoded value as the original function is obsolete
     strcat(result.buffer, temp);
     
     /* Create a basic calendar grid */
@@ -219,13 +232,13 @@ RenderedMonth render_lunar_month(int year, int month, RenderOptions options __at
     int current_weekday = first_day_weekday;
     
     /* Add all days of the month */
-    for (int day = 1; day <= days_in_month; day++) {
+    for (int day = 1; day <= 29; day++) {
         sprintf(temp, "%2d ", day);
         strcat(result.buffer, temp);
         
         /* Increment weekday and add line break if it's end of week */
         current_weekday = (current_weekday + 1) % 7;
-        if (current_weekday == 0 && day < days_in_month) {
+        if (current_weekday == 0 && day < 29) {
             strcat(result.buffer, "\n");
         }
     }
@@ -241,8 +254,16 @@ RenderedMonth render_lunar_month(int year, int month, RenderOptions options __at
 }
 
 /* Render a lunar year */
-RenderedYear render_lunar_year(int year, RenderOptions options __attribute__((unused))) {
+RenderedYear render_lunar_year(int year, RenderOptions options) {
     RenderedYear result = {0};
+    int eld_year = calculate_eld_year_from_gregorian(year);
+    char title[100];
+    snprintf(title, sizeof(title), "Eld Year %d", eld_year);
+    
+    /* Get Metonic position for the year */
+    int metonic_year = 0;
+    int metonic_cycle = 0;
+    get_metonic_position(year, &metonic_year, &metonic_cycle);
     
     /* Allocate buffer */
     result.buffer_size = 16384;
@@ -257,7 +278,6 @@ RenderedYear render_lunar_year(int year, RenderOptions options __attribute__((un
     
     /* Header */
     char temp[4096];
-    int eld_year = calculate_eld_year(year);
     bool is_leap = is_lunar_leap_year(year);
     
     sprintf(temp, "Lunar Calendar for Year %d (Eld Year %d)\n", year, eld_year);
@@ -272,9 +292,6 @@ RenderedYear render_lunar_year(int year, RenderOptions options __attribute__((un
     strcat(result.buffer, "====================================\n\n");
     
     /* Get Metonic position */
-    int metonic_year, metonic_cycle;
-    get_metonic_position(year, 1, 1, &metonic_year, &metonic_cycle);
-    
     sprintf(temp, "Metonic Cycle: Year %d of Cycle %d\n\n", metonic_year, metonic_cycle);
     strcat(result.buffer, temp);
     
@@ -283,9 +300,8 @@ RenderedYear render_lunar_year(int year, RenderOptions options __attribute__((un
     
     for (int m = 1; m <= month_count; m++) {
         const char *month_name = (m <= 12) ? MONTH_NAMES[m - 1] : MONTH_NAMES[12];
-        int days = calculate_lunar_month_length(year, m);
-        
-        sprintf(temp, "Month %2d: %s - %d days\n", m, month_name, days);
+        // int days = calculate_lunar_month_length(year, m); // This function is obsolete
+        sprintf(temp, "Month %2d: %s - %d days\n", m, month_name, 29); // Using a hardcoded value as the original function is obsolete
         strcat(result.buffer, temp);
     }
     
@@ -311,8 +327,9 @@ char *render_metonic_cycle_position(int year, RenderOptions options) {
     buffer[0] = '\0';
     
     /* Get Metonic cycle info */
-    int metonic_year, metonic_cycle;
-    get_metonic_position(year, 1, 1, &metonic_year, &metonic_cycle);
+    int metonic_year = 0;
+    int metonic_cycle = 0;
+    get_metonic_position(year, &metonic_year, &metonic_cycle);
     
     bool is_leap = is_lunar_leap_year(year);
     

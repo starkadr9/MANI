@@ -100,4 +100,9 @@ int calendar_adapter_get_months_in_year(int year);
 /* const char* format_special_day(SpecialDayType type); */
 /* LunarDay calendar_adapter_get_germanic_day_info(int year, int month, int day); */
 
+// Get Unicode character for a moon phase
+const char* calendar_adapter_get_unicode_moon(MoonPhase phase);
+
+// Helper to get month name from config or default
+
 #endif /* CALENDAR_ADAPTER_H */ 

@@ -143,8 +143,8 @@ Weekday calculate_weekday(int year, int month, int day);
 /* Get the lunar date for today */
 LunarDay get_today_lunar_date(void);
 
-/* Get the position of a date within the Metonic cycle */
-void get_metonic_position(int year, int month, int day, int *metonic_year, int *metonic_cycle);
+/* Get the position of a *Lunar Year* (identified by its Gregorian start year) within the conceptual Metonic cycle */
+void get_metonic_position(int lunar_year_identifier, int *metonic_year_pos, int *metonic_cycle_num);
 
 /* Initialize a Metonic cycle starting from a given Gregorian year */
 MetonicCycle initialize_metonic_cycle(int start_year);
@@ -163,5 +163,23 @@ void julian_day_to_gregorian(double julian_day, int *year, int *month, int *day,
 
 /* Convert Gregorian date to Julian day */
 double gregorian_to_julian_day(int year, int month, int day, double hour);
+
+/* Calculate the Julian Day (UT) of the start of the specified lunar year. */
+double calculate_lunar_new_year_jd(int gregorian_year);
+
+/* Calculate the number of lunar months (12 or 13) in a given lunar year. */
+int get_lunar_months_in_year(int lunar_year);
+
+/* Calculate if a given lunar year (defined by our rules) has 13 months. */
+bool is_lunar_leap_year(int lunar_year);
+
+/* Find the Julian Day (UT) of the next specified phase after a given JD. */
+double find_next_phase_jd(double start_jd, int phase_type); // 0=NM, 1=FQ, 2=FM, 3=LQ
+
+/* Calculate moon phase directly from Julian Day (UT) */
+MoonPhase calculate_moon_phase_from_jd(double jd);
+
+/* Calculate the Eld Year based on the *Gregorian* year */
+int calculate_eld_year_from_gregorian(int gregorian_year);
 
 #endif /* LUNAR_CALENDAR_H */ 

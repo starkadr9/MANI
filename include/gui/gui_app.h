@@ -9,6 +9,7 @@
 // GUI application structure
 typedef struct {
     GtkApplication *app;
+    GtkApplication *gtk_app;
     GtkWidget *window;
     GtkWidget *calendar_view;
     GtkWidget *header_bar;

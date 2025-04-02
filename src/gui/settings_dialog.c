@@ -369,9 +369,9 @@ static GtkWidget* create_names_tab(LunarCalendarApp* app, SettingsWidgets* widge
     
     // Default month names
     const char* default_month_names[] = {
-        "After Yule", "Sol", "Hretha", "Eostre", "Three Milkings",
-        "Mead", "Hay", "Harvest", "Holy", "Winter", 
-        "Blood", "Before Yule", "Thirteenth"
+        "Month 1", "Month 2", "Month 3", "Month 4", "Month 5",
+        "Month 6", "Month 7", "Month 8", "Month 9", "Month 10", 
+        "Month 11", "Month 12", "Month 13"
     };
     
     // Create entries for month names
@@ -527,9 +527,9 @@ static GtkWidget* create_moon_names_tab(LunarCalendarApp* app, SettingsWidgets* 
     
     // Default full moon names
     const char* default_moon_names[] = {
-        "Wolf Moon", "Snow Moon", "Worm Moon", "Pink Moon",
-        "Flower Moon", "Strawberry Moon", "Buck Moon", "Sturgeon Moon",
-        "Harvest Moon", "Hunter's Moon", "Beaver Moon", "Cold Moon"
+        "1 Moon", "2 Moon", "3 Moon", "4 Moon",
+        "5 Moon", "6 Moon", "7 Moon", "8 Moon",
+        "9 Moon", "10 Moon", "11 Moon", "12 Moon"
     };
     
     // Month names for display

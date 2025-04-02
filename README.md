@@ -1,4 +1,4 @@
-# MANI - Lunar Calendar Application
+# MANI - METONIC ALGORITHMIC NIGHTCYCLE INTERFACE 
 
 A GTK-based desktop application displaying a lunisolar calendar based on reconstructed Germanic traditions, calculated using the Metonic cycle and astronomical events.
 
@@ -15,7 +15,6 @@ This application provides a visual calendar interface showing traditional lunar 
 - Allows navigation through months and years.
 - Customizable month/weekday names and display options via Settings dialog.
 - Loads and saves user preferences.
-- (Planned) Event tracking system.
 
 ## Building
 
